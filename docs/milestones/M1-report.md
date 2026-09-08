@@ -1,6 +1,6 @@
 # M1 里程碑报告（对话闭环——代码层）
 
-> 日期：2026-09-08 · 状态：**代码层完成**（需真实 dsh sidecar 跑通 T-020 集成验收）
+> 日期：2026-09-08 · 状态：**完成（代码层 + T-020 集成验收 15/15 通过，见 M1-acceptance-report.md）**
 > 范围：T-010（host-dsh 骨架）、T-011（RPC server）、T-012（SessionBridge+EventBus+SSE）、T-013（transport）、T-014（EventStore）、T-016（消息流组件）、T-017（ToolCallCard/ApprovalCard）
 
 ## 做了什么
