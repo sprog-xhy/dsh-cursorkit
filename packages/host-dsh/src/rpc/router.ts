@@ -133,8 +133,10 @@ export class Router {
       if (!s) throw new CkpError('SESSION_NOT_FOUND', `session ${params.id} not found`);
       const message = {
         id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        role: 'user',
-        text: params.text,
+        role: 'user' as const,
+        // dsh Message requires a source; user messages carry kind 'user'.
+        source: { kind: 'user' as const },
+        content: [{ type: 'text' as const, text: params.text }],
         createdAt: Date.now(),
       };
       const agentFor = svc.agents.get(params.id) ??
