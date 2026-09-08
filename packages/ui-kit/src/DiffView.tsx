@@ -186,7 +186,7 @@ function SplitTable({ rows }: { rows: Row[] }) {
   }
 
   const n = Math.max(left.length, right.length);
-  const rowsOut: React.ReactNode[] = [];
+  const rowsOut: ReactNode[] = [];
   for (let i = 0; i < n; i++) {
     const l = left[i];
     const r = right[i];
