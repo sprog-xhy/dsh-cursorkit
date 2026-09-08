@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@dsh-cursorkit/client": "workspace:*",
+    "@dsh-cursorkit/host-dsh": "workspace:*",
     "@dsh-cursorkit/protocol": "workspace:*"
   },
   "devDependencies": {

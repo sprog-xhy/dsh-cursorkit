@@ -21,7 +21,9 @@ interface ErrorBoundaryState {
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   override state: ErrorBoundaryState = { error: null };
 
-  static override getDerivedStateFromError(error: Error): ErrorBoundaryState {
+  // NOTE: no `override` here — @types/react's Component doesn't declare the
+  // static lifecycle, so `override` on it is a TS4113 error.
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     return { error };
   }
 

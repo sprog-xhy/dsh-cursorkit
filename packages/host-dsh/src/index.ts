@@ -10,14 +10,38 @@
  */
 
 import { probe, type CapabilityReport } from './capability.ts';
-import { startServer } from './rpc/server.ts';
+import { startServer, type ServerDeps, type ServerHandle } from './rpc/server.ts';
 import { EventBus } from './rpc/sse.ts';
 import { ApprovalBridge } from './bridge/approval-bridge.ts';
-import { generateToken, writeRuntimeFile, removeRuntimeFile } from './runtime-file.ts';
+import { generateToken, writeRuntimeFile, removeRuntimeFile, readRuntimeFile, type RuntimeInfo } from './runtime-file.ts';
 import { need, CapabilityMissingError } from './compat/ctx.ts';
 import { sessions as sessionsCompat, agent as agentCompat } from './compat/sessions.ts';
-import { translateRawEvent } from './bridge/session-bridge.ts';
+import { translateRawEvent, type RawCkpEvent, type RawSessionEvent } from './bridge/session-bridge.ts';
 import { CKP_PROTOCOL_VERSION } from '@dsh-cursorkit/protocol';
+
+/** Public API surface — plugin entry plus the pieces a host harness needs to
+ * test, embed, or extend the server. */
+export {
+  probe,
+  startServer,
+  EventBus,
+  ApprovalBridge,
+  generateToken,
+  writeRuntimeFile,
+  removeRuntimeFile,
+  readRuntimeFile,
+  translateRawEvent,
+  CapabilityMissingError,
+  CKP_PROTOCOL_VERSION,
+};
+export type {
+  CapabilityReport,
+  ServerDeps,
+  ServerHandle,
+  RuntimeInfo,
+  RawCkpEvent,
+  RawSessionEvent,
+};
 
 export const name = 'dsh-cursorkit-host';
 export const inject = ['sessions', 'agentLoop'];

@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { colors, fonts, radii } from '../lib/theme.ts';
+import { colors, fonts, radii } from './lib/theme.ts';
 import { Spinner } from './primitives/Spinner.tsx';
 
 export interface MessageBubbleProps {

@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react';
-import { colors, fonts } from '../lib/theme.ts';
+import { colors, fonts } from './lib/theme.ts';
 
 export interface MarkdownProps {
   text: string;

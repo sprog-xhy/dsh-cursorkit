@@ -190,12 +190,12 @@ function SplitTable({ rows }: { rows: Row[] }) {
   for (let i = 0; i < n; i++) {
     const l = left[i];
     const r = right[i];
-    if (l?.span || r?.span) {
-      const row = l ?? r;
+    const spanRow = l?.span === true ? l : r?.span === true ? r : undefined;
+    if (spanRow) {
       rowsOut.push(
-        <tr key={i} style={{ ...rowBg(row), display: 'flex' }}>
-          <td colSpan={2} style={{ ...cell, color: rowColor(row), flex: 1 }}>
-            {row.text}
+        <tr key={i} style={{ ...rowBg(spanRow), display: 'flex' }}>
+          <td colSpan={2} style={{ ...cell, color: rowColor(spanRow), flex: 1 }}>
+            {spanRow.text}
           </td>
         </tr>,
       );

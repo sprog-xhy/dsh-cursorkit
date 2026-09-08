@@ -1,21 +1,22 @@
 {
-  // NOTE: `paths` maps @dsh-cursorkit/protocol to its source so this package
-  // typechecks against the real domain/event types. The protocol package's
-  // published types (lib/types/index.d.ts) are not emitted by its current
-  // build, so plain package resolution would fail. Emit still keeps the bare
-  // specifier "@dsh-cursorkit/protocol", so runtime resolution is unaffected.
+  // Extends ../../tsconfig.base.json (target ES2022, strict, verbatimModuleSyntax,
+  // declaration, bundler resolution …). This package only overrides emit layout
+  // and JSX — everything else comes from base.
+  //
+  // Note on `@dsh-cursorkit/protocol`: it resolves through node_modules like a
+  // normal workspace dep, so the protocol package must publish working types at
+  // the path its package.json declares (lib/types/index.d.ts). Do NOT add a
+  // `paths` mapping to ../protocol/src here: it pulls .ts files outside rootDir
+  // into the program, which makes every build fail with TS6059.
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "lib",
     "rootDir": "src",
-    // base tsconfig has no `jsx` — required for .tsx sources.
+    // base has no `jsx` — required for .tsx sources.
     "jsx": "react-jsx",
     // declarationDir is resolved relative to this tsconfig, so .d.ts files
     // land in lib/types/ while JS goes to lib/ (matches package.json types).
-    "declarationDir": "lib/types",
-    "paths": {
-      "@dsh-cursorkit/protocol": ["../protocol/src/index.ts"]
-    }
+    "declarationDir": "lib/types"
   },
   "include": ["src"]
 }

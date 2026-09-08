@@ -23,6 +23,9 @@ importers:
       '@dsh-cursorkit/client':
         specifier: workspace:*
         version: link:../packages/client
+      '@dsh-cursorkit/host-dsh':
+        specifier: workspace:*
+        version: link:../packages/host-dsh
       '@dsh-cursorkit/protocol':
         specifier: workspace:*
         version: link:../packages/protocol
