@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it } from 'vitest';
+import { cleanup, render, screen } from '@testing-library/react';
 import { ToolCallCard } from '../src/ToolCallCard.tsx';
 import type { ToolCall } from '@dsh-cursorkit/protocol';
+
+// vitest runs with `globals: false`, so @testing-library/react's auto-cleanup
+// is not registered — clear the DOM between tests explicitly.
+afterEach(cleanup);
 
 const baseCall: ToolCall = {
   callId: 'call-1',

@@ -203,10 +203,10 @@ function SplitTable({ rows }: { rows: Row[] }) {
     }
     rowsOut.push(
       <tr key={i} style={{ display: 'flex' }}>
-        <td style={{ ...cell, ...rowBg(l), color: l ? rowColor(l) : colors.textMuted, flex: 1, minWidth: 0 }}>
+        <td style={{ ...cell, ...(l ? rowBg(l) : null), color: l ? rowColor(l) : colors.textMuted, flex: 1, minWidth: 0 }}>
           {l ? l.text : ''}
         </td>
-        <td style={{ ...cell, ...rowBg(r), color: r ? rowColor(r) : colors.textMuted, flex: 1, minWidth: 0 }}>
+        <td style={{ ...cell, ...(r ? rowBg(r) : null), color: r ? rowColor(r) : colors.textMuted, flex: 1, minWidth: 0 }}>
           {r ? r.text : ''}
         </td>
       </tr>,
