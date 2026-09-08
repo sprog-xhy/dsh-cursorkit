@@ -90,9 +90,10 @@ function probeOptional(ctx: CtxProbe, cap: string): boolean {
         typeof getPath(ctx, 'agent.cancel') === 'function';
     case 'approvals.request':
     case 'approvals.resolve':
-      // dsh-authorization exists but is credential authorization, not tool approval;
-      // host implements its own approval surface. Probe for the service, treat as optional.
-      return typeof getPath(ctx, 'authorization.begin') === 'function';
+      // dsh-user-approval exposes ctx.approval.request + approval/request event.
+      // The CKP approval surface works even without it (host-owned bridge), so
+      // this remains optional — but a true dsh integration probes the service.
+      return typeof getPath(ctx, 'approval.request') === 'function';
     case 'tools.list':
       return typeof getPath(ctx, 'tools.list') === 'function';
     case 'skills.list':

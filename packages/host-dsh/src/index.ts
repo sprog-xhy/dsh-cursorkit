@@ -17,6 +17,7 @@ import { generateToken, writeRuntimeFile, removeRuntimeFile, readRuntimeFile, ty
 import { need, CapabilityMissingError } from './compat/ctx.ts';
 import { sessions as sessionsCompat, agent as agentCompat } from './compat/sessions.ts';
 import { translateRawEvent, type RawCkpEvent, type RawSessionEvent } from './bridge/session-bridge.ts';
+import { registerDshAnswerer } from './bridge/dsh-approval-adapter.ts';
 import { CKP_PROTOCOL_VERSION } from '@dsh-cursorkit/protocol';
 
 /** Public API surface — plugin entry plus the pieces a host harness needs to
@@ -154,6 +155,10 @@ export function apply(ctx: HostCtx, config: HostConfig = {}): void {
           const h2 = ctx.on('session/created' as never, onCreated as never);
           listeners.push(h1, h2);
         }
+
+        // 5. Bridge dsh approval seam → CKP approvals (when ctx.approval exists).
+        const disposeAnswerer = registerDshAnswerer(ctx as never, { bridge: approvals, bus });
+        listeners.push(disposeAnswerer);
 
         return async () => {
           disposed = true;

@@ -129,9 +129,9 @@ class Inbox {
   - 标为 **`[待核验-6]`**：dsh 权限审批的挂起/回执 API 签名（读 `@deepseek-ai/dsh-authorization` lib/types）。
   - M1 若未核验完成，ApprovalBridge 先接「权限策略预置（permission presets）」的已授权/需人工路径，审批 UI 用 CKP 事件层先行实现。
 
-## 6.5 补充核验：`dsh-authorization` 是凭据授权，不是工具审批
+## 6.5 补充核验：`dsh-authorization` 是凭据授权，不是工具审批（2026-09-08 首验）
 
-**结论（2026-09-08 核验）**：`ctx.authorization`（`AuthorizationService`）是 **API 凭据授权流程**（API key 登录），不是工具调用审批：
+**结论（首验）**：`ctx.authorization`（`AuthorizationService`）是 **API 凭据授权流程**（API key 登录），不是工具调用审批：
 
 ```ts
 // @deepseek-ai/dsh-authorization/lib/types/index.d.ts
@@ -147,8 +147,37 @@ class AuthorizationService extends Service {
 ```
 
 - 面向「credential record」（API key / 登录态），interaction 回调（`notify`/`prompt`）由调用方提供——headless 调用方可以 `prompt` 返回拒绝。
-- **工具执行审批**（写文件 / shell / 网络）在 0.1.1-rc.2 源码中**未发现独立 Service**：`dsh-client-ui-permission-presets` 只是 UI 预置（`apply()` 注册），未暴露 `request/resolve` RPC。
-- **结论**：CKP 的 `approval.request/resolved` 事件流与 `ApprovalCard` 由 **host-dsh 自己实现**（挂起表 + 超时 deny + 决策写回会话日志），不与 dsh 内部审批绑定；工具是否执行由 dsh 自身授权策略决定（如权限预置），host 只做**展示层**。这符合「协议归我」的架构决策，且不违反「不改 dsh 源码」红线。
+
+## 6.6 复审：工具审批在 `dsh-user-approval`（BLOCKED-1 关闭）
+
+**结论（2026-09-08 复审，集成验收前）**：工具审批的真实 Service 是 **`@deepseek-ai/dsh-user-approval`**（在 `dsh-base` bundle 内以行 `approval` 加载，审查时遗漏于独立包清单）：
+
+```ts
+// @deepseek-ai/dsh-user-approval/lib/types/index.d.ts
+declare module '@deepseek-ai/cordis' {
+  interface Context { approval: ApprovalService }
+  interface Events {
+    'approval/request'(this: Scoped<ApprovalService>, req: ApprovalRequest,
+                       next: () => Promise<ApprovalOutcome>): Promise<ApprovalOutcome>; // waterfall
+  }
+}
+interface ApprovalRequest {
+  readonly agent: Agent;          // agent.session.id → sessionId
+  readonly toolName: string;
+  readonly callId?: CallId;
+  readonly reason?: string;
+  readonly signal?: AbortSignal;  // abort → 'cancelled'
+}
+type ApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable';
+// 审计：会话日志追加 'approval/asked' + 'approval/decided'（log-only，非 surface 事件）
+// 策略：'ask'（委托 answerer，fail-closed 无 answerer 时 'unavailable'）/ 'never'（自动拒绝）
+// ctx.approval.request(req): Promise<ApprovalOutcome> —— 要求有 open turn
+```
+
+**实现含义（host-dsh 已按此落地）**：
+- `registerDshAnswerer`（`bridge/dsh-approval-adapter.ts`）：注册 `approval/request` answerer，把 dsh 请求桥接为 CKP `approval.request`；UI 经 `approval.respond` 决策后返回 outcome 给 dsh（once/session/always → `allowed-once`，deny → `rejected`，signal abort → `cancelled`，无会话 → `unavailable` fail-closed）。
+- 审计事件由 dsh 自己写入会话日志（`approval/asked`/`approval/decided`），host 不需要重复落库。
+- BLOCKED-1 关闭：ApprovalBridge（CKP 挂起面）保留，dsh 适配层可选——无 `ctx.approval` 时 CKP 审批面仍可独立工作（host-owned 模式）。
 
 ## 7. 对实现的影响（差异清单）
 
