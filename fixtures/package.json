@@ -13,7 +13,9 @@
     },
     "./package.json": "./package.json"
   },
-  "files": ["lib"],
+  "files": [
+    "lib"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -22,6 +24,7 @@
     "lint": "echo \"fixtures: no lint rules yet\""
   },
   "dependencies": {
+    "@dsh-cursorkit/client": "workspace:*",
     "@dsh-cursorkit/protocol": "workspace:*"
   },
   "devDependencies": {

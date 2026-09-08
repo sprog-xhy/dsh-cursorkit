@@ -242,7 +242,7 @@ function mergeThinking(
   return [
     ...thinking,
     {
-      id: `think-${ts}-${Math.random().toString(36).slice(2, 6)}`,
+      id: `think-${ts}`,
       sessionId: last?.sessionId ?? '',
       text,
       done,
