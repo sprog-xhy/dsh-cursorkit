@@ -39,7 +39,9 @@ export const OPTIONAL_CAPABILITIES = [
  */
 export interface CtxProbe {
   sessions?: unknown;
+  agents?: unknown;
   agentLoop?: unknown;
+  approval?: unknown;
   tools?: unknown;
   skills?: unknown;
   plugins?: unknown;
@@ -49,24 +51,27 @@ export interface CtxProbe {
 }
 
 function getPath(obj: unknown, path: string): unknown {
-  return path.split('.').reduce<unknown>((acc, key) => {
-    if (acc && typeof acc === 'object') return (acc as Record<string, unknown>)[key];
+  try {
+    return path.split('.').reduce<unknown>((acc, key) => {
+      if (acc && typeof acc === 'object') return (acc as Record<string, unknown>)[key];
+      return undefined;
+    }, obj);
+  } catch {
+    // Cordis ctx proxies throw "cannot get property X without inject" when a
+    // non-injected service is touched — treat as absent (probe must not crash).
     return undefined;
-  }, obj);
+  }
 }
 
 /** Probe a ctx-like object and return the capability report. */
 export function probe(ctx: CtxProbe, version: { version: string; commit?: string }): CapabilityReport {
   const sessions = ctx.sessions as Record<string, unknown> | undefined;
-  const agentLoop = ctx.agentLoop as Record<string, unknown> | undefined;
+  const agentRegistry = ctx.agents as Record<string, unknown> | undefined;
 
   const missing: string[] = [];
-  // sessions.create / sessions.send / sessions.events
+  // Required: sessions + an agent registry to send through.
   if (typeof sessions?.create !== 'function') missing.push('sessions.create');
-  if (typeof getPath(ctx, 'agent.inbox') !== 'object' && typeof agentLoop !== 'object') {
-    // fall through: sessions.send needs an agent handle; probe agentLoop presence loosely
-  }
-  if (typeof sessions === 'undefined') missing.push('sessions.events');
+  if (typeof agentRegistry?.get !== 'function') missing.push('agents.get');
 
   const optional = Object.fromEntries(
     OPTIONAL_CAPABILITIES.map((cap) => [cap, probeOptional(ctx, cap)]),
@@ -86,8 +91,9 @@ function probeOptional(ctx: CtxProbe, cap: string): boolean {
     case 'sessions.fork':
       return typeof (ctx.sessions as { fork?: unknown } | undefined)?.fork === 'function';
     case 'sessions.cancel':
+      // Agent.cancel is an instance method; probe via the registry's agent shape.
       return typeof (ctx.agentLoop as { cancel?: unknown } | undefined)?.cancel === 'function' ||
-        typeof getPath(ctx, 'agent.cancel') === 'function';
+        (ctx.agents as { get?: (id: string) => { cancel?: unknown } | undefined } | undefined)?.get !== undefined;
     case 'approvals.request':
     case 'approvals.resolve':
       // dsh-user-approval exposes ctx.approval.request + approval/request event.

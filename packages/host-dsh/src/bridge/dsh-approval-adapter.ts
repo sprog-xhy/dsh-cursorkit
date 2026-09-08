@@ -135,7 +135,13 @@ export function registerDshAnswerer(
   opts: DshApprovalAdapterOptions,
 ): () => void {
   const answerer = createDshAnswerer(opts);
-  if (typeof ctx.on !== 'function' || !ctx.approval) {
+  let hasApproval = false;
+  try {
+    hasApproval = typeof (ctx as { approval?: unknown }).approval === 'object';
+  } catch {
+    hasApproval = false;
+  }
+  if (typeof ctx.on !== 'function' || !hasApproval) {
     // No approval seam — the CKP surface still works standalone (host-owned).
     return () => {};
   }

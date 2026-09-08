@@ -13,11 +13,11 @@ import {
 import type { ApprovalBridge } from '../bridge/approval-bridge.ts';
 import type { CapabilityReport } from '../capability.ts';
 import type { EventBus } from './sse.ts';
-import type { SessionStoreView, AgentView } from '../compat/sessions.ts';
+import type { SessionStoreView, AgentView, AgentRegistryView } from '../compat/sessions.ts';
 
 export interface RouterServices {
   sessions: SessionStoreView;
-  agent: AgentView;
+  agents: AgentRegistryView;
   approvals: ApprovalBridge;
   bus: EventBus;
   capabilities: CapabilityReport;
@@ -137,12 +137,15 @@ export class Router {
         text: params.text,
         createdAt: Date.now(),
       };
-      if (typeof svc.agent.send === 'function') {
-        svc.agent.send(message, 'next-turn', true);
-      } else if (svc.agent.inbox?.append) {
-        svc.agent.inbox.append('next-turn', message);
+      const agentFor = svc.agents.get(params.id) ??
+        svc.agents.list().find((a) => (a as { session?: { id: string } }).session?.id === params.id);
+      const target = agentFor as AgentView | undefined;
+      if (target?.send) {
+        target.send(message, 'next-turn', true);
+      } else if (target?.inbox?.append) {
+        target.inbox.append('next-turn', message);
       } else {
-        throw new CkpError('CAPABILITY_MISSING', undefined, ['sessions.send']);
+        throw new CkpError('CAPABILITY_MISSING', `no live agent for session ${params.id}`, ['sessions.send']);
       }
       // Broadcast the user message so all subscribers see it in the stream.
       svc.bus.emit({
@@ -161,8 +164,9 @@ export class Router {
         await loop.cancel({ keepInbox: false });
         return undefined;
       }
-      if (typeof svc.agent.cancel === 'function') {
-        await svc.agent.cancel({ keepInbox: false });
+      const target = svc.agents.get(params.id) as AgentView | undefined;
+      if (typeof target?.cancel === 'function') {
+        await target.cancel({ keepInbox: false });
         return undefined;
       }
       throw new CkpError('CAPABILITY_MISSING', undefined, ['sessions.cancel']);

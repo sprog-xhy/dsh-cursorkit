@@ -3,7 +3,7 @@ import { startServer } from '../src/rpc/server.ts';
 import { EventBus } from '../src/rpc/sse.ts';
 import { ApprovalBridge } from '../src/bridge/approval-bridge.ts';
 import type { CapabilityReport } from '../src/capability.ts';
-import type { SessionStoreView, AgentView } from '../src/compat/sessions.ts';
+import type { SessionStoreView, AgentRegistryView } from '../src/compat/sessions.ts';
 
 function makeReport(overrides?: Partial<CapabilityReport>): CapabilityReport {
   return {
@@ -53,10 +53,9 @@ function makeSessions(): SessionStoreView & { seeds: { id: string; seq: number }
   };
 }
 
-const agent: AgentView = {
-  send: () => {},
-  cancel: async () => {},
-  inbox: { append: () => {} },
+const agentRegistry: AgentRegistryView = {
+  get: () => ({ send: () => {}, cancel: async () => {}, inbox: { append: () => {} } }),
+  list: () => [],
 };
 
 describe('HTTP+SSE server', () => {
@@ -73,7 +72,7 @@ describe('HTTP+SSE server', () => {
       bus,
       approvals,
       sessions,
-      agent,
+      agents: agentRegistry,
       appVersion: '0.1.1-rc.2',
     });
     const base = `http://127.0.0.1:${server.port}`;
@@ -164,7 +163,7 @@ describe('HTTP+SSE server', () => {
       bus,
       approvals: new ApprovalBridge({ bus }),
       sessions: makeSessions(),
-      agent,
+      agents: agentRegistry,
       appVersion: 'x',
     });
     try {

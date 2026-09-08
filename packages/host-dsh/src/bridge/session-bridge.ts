@@ -1,61 +1,63 @@
 /**
  * SessionBridge: translate dsh session events into CKP events.
  *
- * dsh 0.1.1-rc.2 real API (see docs/dsh-capability-audit.md §3):
- * - Subscribe: `ctx.on('session/event', (session, event) => …)`
- * - Events carry their own seq (session.log length contract)
- * - SessionEvent types: user/…, assistant/…, tool/…, turn/start, request/header…
+ * dsh 0.1.1-rc.2 real event shapes (verified against dsh-session/dsh-llm types):
+ * - user/message   → data: UserMessage { id, role:'user', content: ContentBlock[], source }
+ * - assistant/chunk→ data: { turn, step, chunk: StreamChunk }  // text-delta / block-start
+ * - assistant/message → data: { turn, step, message: AssistantMessage, usage? }
+ * - tool/call      → data: { turn, step, callId, name, arguments: string(JSON) }
+ * - tool/result    → data: { turn, step, message: ToolResultMessage }
+ * - turn/start     → data: { turn }
+ * - turn/end       → data: { turn, reason }
+ * - approval/asked/decided → dsh-user-approval audit events (log-only)
  *
- * This bridge maps dsh event types → CKP event types and re-emits through the
- * host EventBus (which assigns fresh CKP seqs). It is deliberately tolerant:
- * unknown dsh event types are passed through as a generic `message.delta`-ish
- * or dropped with a debug log — never thrown.
+ * This bridge maps these → CKP event types and re-emits through the host
+ * EventBus (which assigns fresh CKP seqs). Deliberately tolerant: unknown
+ * event types are dropped with a debug log — never thrown.
  *
  * @module @dsh-cursorkit/host-dsh/bridge/session-bridge
  */
-
-import type { CkpEvent } from '@dsh-cursorkit/protocol';
-import type { EventBus } from '../rpc/sse.ts';
-
-/** Loose CKP event payload as produced by the bridge (seq/ts added by EventBus). */
-export interface RawCkpEvent {
-  sessionId: string;
-  type: string;
-  [key: string]: unknown;
-}
 
 /** Raw dsh session event (structural subset we care about). */
 export interface RawSessionEvent {
   seq?: number;
   type: string;
-  data?: {
-    text?: string;
-    content?: string | unknown[];
-    message?: unknown;
-    toolName?: string;
-    toolCallId?: string;
-    args?: unknown;
-    output?: string;
-    exitCode?: number;
-    name?: string;
-    [key: string]: unknown;
-  };
+  data?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
-/** A dsh session object we subscribe to. */
-export interface BridgeSession {
-  id: string;
-  seq?: number;
-  events?: readonly RawSessionEvent[];
-  deriveMessages?: () => unknown[];
+/** One dsh ContentBlock (text or tool_use variants). */
+interface DshContentBlock {
+  type?: string;
+  text?: string;
+  name?: string;
+  id?: string;
+  input?: unknown;
+  [key: string]: unknown;
 }
 
-export interface SessionBridgeOptions {
-  bus: EventBus;
-  /** Optional session-scoped filter: only translate events for these ids. */
-  sessionFilter?: (sessionId: string) => boolean;
-  onError?: (err: unknown) => void;
+/** Extract human-readable text from a ContentBlock[]. */
+function contentToText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((b) => {
+      const block = b as DshContentBlock;
+      if (typeof block.text === 'string') return block.text;
+      if (block.type === 'tool_use' && block.name) {
+        try {
+          return `[tool:${block.name}] ${typeof block.input === 'string' ? block.input : JSON.stringify(block.input ?? {})}`;
+        } catch {
+          return `[tool:${block.name}]`;
+        }
+      }
+      return '';
+    })
+    .join('');
+}
+
+function dataOf(raw: RawSessionEvent): Record<string, unknown> {
+  return (raw.data ?? {}) as Record<string, unknown>;
 }
 
 /**
@@ -67,68 +69,98 @@ export function translateRawEvent(
   raw: RawSessionEvent,
 ): RawCkpEvent | null {
   const type = raw.type ?? '';
-  const d = raw.data ?? {};
+  const d = dataOf(raw);
+  const message = (d.message ?? d) as { id?: string; role?: string; content?: unknown } | undefined;
 
-  if (type.startsWith('user/')) {
-    return { sessionId, type: 'message.user', text: typeof d.text === 'string' ? d.text : '' };
-  }
-  if (type.startsWith('assistant/chunk')) {
-    return {
-      sessionId,
-      type: 'message.delta',
-      text: typeof d.text === 'string' ? d.text : typeof d.content === 'string' ? d.content : '',
-    };
-  }
-  if (type.startsWith('assistant/') || type === 'assistant') {
-    return { sessionId, type: 'message.done', message: messageFromRaw(sessionId, raw) };
-  }
-  if (type.startsWith('tool/') && type.includes('call')) {
-    return {
-      sessionId,
-      type: 'tool.call',
-      call: {
-        callId: String(d.toolCallId ?? `${sessionId}-${raw.seq ?? Date.now()}`),
+  switch (type) {
+    case 'user/message': {
+      const text = message ? contentToText(message.content) : String(d.text ?? '');
+      return { sessionId, type: 'message.user', text, messageId: message?.id ?? raw.seq };
+    }
+
+    case 'assistant/chunk': {
+      const chunk = d.chunk as { type?: string; text?: string } | undefined;
+      const text = chunk?.type === 'text-delta' && typeof chunk.text === 'string' ? chunk.text : '';
+      return { sessionId, type: 'message.delta', text };
+    }
+
+    case 'assistant/message': {
+      const text = message ? contentToText(message.content) : '';
+      return {
         sessionId,
-        name: String(d.toolName ?? d.name ?? 'tool'),
-        args: d.args,
-        status: 'running',
-        startedAt: Date.now(),
-      },
-    };
+        type: 'message.done',
+        message: {
+          id: message?.id ?? `${sessionId}-${raw.seq ?? Date.now()}`,
+          role: 'assistant',
+          text,
+          createdAt: raw.seq ?? Date.now(),
+        },
+      };
+    }
+
+    case 'tool/call': {
+      let args: unknown = d.arguments;
+      if (typeof args === 'string') {
+        try {
+          args = JSON.parse(args);
+        } catch {
+          args = { raw: args };
+        }
+      }
+      return {
+        sessionId,
+        type: 'tool.call',
+        call: {
+          callId: String(d.callId ?? `${sessionId}-${raw.seq ?? Date.now()}`),
+          sessionId,
+          name: String(d.name ?? 'tool'),
+          args,
+          status: 'running',
+          startedAt: Date.now(),
+        },
+      };
+    }
+
+    case 'tool/result': {
+      const block = (message?.content as DshContentBlock[] | undefined)?.[0];
+      const callId = String(
+        block?.id ??
+        (d.message as { callId?: string } | undefined)?.callId ??
+        '',
+      );
+      // ToolResultBlock carries its text in `output`; fall back to contentToText.
+      const text = typeof block?.output === 'string' ? block.output : contentToText(message?.content);
+      const isError = typeof d.error === 'object' && d.error !== null;
+      return {
+        sessionId,
+        type: isError ? 'tool.done' : 'tool.output',
+        callId,
+        output: text,
+        exitCode: isError ? 1 : 0,
+        status: isError ? 'error' : 'success',
+      } as RawCkpEvent;
+    }
+
+    case 'turn/start':
+      // Opening turn — a no-op marker for CKP.
+      return { sessionId, type: 'message.delta', text: '' };
+
+    case 'turn/end':
+      return null;
+
+    case 'approval/asked':
+      return null; // audit-only; ApprovalBridge handles the UI-facing surface
+
+    case 'approval/decided':
+      return null;
+
+    default:
+      if (/^(error|cancel)/.test(type)) {
+        return { sessionId, type: type.includes('cancel') ? 'cancelled' : 'error', message: String(d.text ?? '') };
+      }
+      // Unknown event type — ignore silently (dsh emits many internal events).
+      return null;
   }
-  if (type.startsWith('tool/') && (type.includes('output') || type.includes('result'))) {
-    return {
-      sessionId,
-      type: 'tool.output',
-      callId: String(d.toolCallId ?? ''),
-      output: typeof d.output === 'string' ? d.output : typeof d.text === 'string' ? d.text : '',
-      exitCode: typeof d.exitCode === 'number' ? d.exitCode : undefined,
-    };
-  }
-  if (type.startsWith('tool/') && (type.includes('done') || type.includes('end'))) {
-    return {
-      sessionId,
-      type: 'tool.done',
-      callId: String(d.toolCallId ?? ''),
-      status: typeof d.exitCode === 'number' && d.exitCode !== 0 ? 'error' : 'success',
-      durationMs: undefined,
-      error: undefined,
-    };
-  }
-  if (type === 'turn/start') {
-    return { sessionId, type: 'message.delta', text: '' };
-  }
-  if (type === 'done' || type === 'session/done') {
-    return { sessionId, type: 'done', status: 'done' };
-  }
-  if (type === 'error' || type === 'session/error') {
-    return { sessionId, type: 'error', message: typeof d.text === 'string' ? d.text : String(raw.error ?? '') };
-  }
-  if (type === 'cancel' || type === 'session/cancel' || type === 'cancelled') {
-    return { sessionId, type: 'cancelled' };
-  }
-  // Unknown event type — ignore silently (dsh emits many internal events).
-  return null;
 }
 
 function messageFromRaw(sessionId: string, raw: RawSessionEvent): {
@@ -137,14 +169,12 @@ function messageFromRaw(sessionId: string, raw: RawSessionEvent): {
   text: string;
   createdAt: number;
 } {
-  const d = raw.data ?? {};
+  const d = dataOf(raw);
   const text =
     typeof d.text === 'string'
       ? d.text
       : Array.isArray(d.content)
-        ? d.content
-            .map((c) => (typeof c === 'object' && c !== null && 'text' in c ? String((c as { text: unknown }).text) : ''))
-            .join('')
+        ? contentToText(d.content)
         : typeof d.content === 'string'
           ? d.content
           : '';
@@ -154,4 +184,11 @@ function messageFromRaw(sessionId: string, raw: RawSessionEvent): {
     text,
     createdAt: Date.now(),
   };
+}
+
+/** Loose CKP event payload as produced by the bridge (seq/ts added by EventBus). */
+export interface RawCkpEvent {
+  sessionId: string;
+  type: string;
+  [key: string]: unknown;
 }

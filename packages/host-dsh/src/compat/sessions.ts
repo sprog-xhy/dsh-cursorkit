@@ -12,6 +12,8 @@ export interface DshSessionView {
   id: string;
   header?: { cwd?: string; createdAt?: number };
   seq: number;
+  /** Full recovered event log (present on live dsh sessions). */
+  events?: readonly unknown[];
   deriveMessages?: () => unknown[];
   append?: (type: string, data: unknown, opts?: unknown) => unknown;
 }
@@ -30,6 +32,13 @@ export interface AgentView {
   inbox?: { append?(target: 'next-turn' | 'next-step', message: unknown): void };
 }
 
+/** dsh's AgentRegistry (ctx.agents): get/list/create. */
+export interface AgentRegistryView {
+  get(id: string): AgentView | undefined;
+  list(): AgentView[];
+  create?(options: Record<string, unknown>): Promise<unknown>;
+}
+
 export interface AgentLoopView {
   cancel?(options?: { keepInbox?: boolean }): Promise<void>;
 }
@@ -39,9 +48,16 @@ export function sessions(ctx: unknown): SessionStoreView {
   return need<SessionStoreView>(ctx, 'sessions');
 }
 
-/** Resolve the agent handle for sending, failing fast when missing. */
-export function agent(ctx: unknown): AgentView {
-  return need<AgentView>(ctx, 'agent');
+/** Resolve the agent registry (ctx.agents), failing fast when missing. */
+export function agents(ctx: unknown): AgentRegistryView {
+  return need<AgentRegistryView>(ctx, 'agents');
+}
+
+/** Find the live agent driving a session, if any. */
+export function agentForSession(ctx: unknown, sessionId: string): AgentView | undefined {
+  const registry = optionalView(ctx, 'agents') as AgentRegistryView | undefined;
+  if (!registry) return undefined;
+  return registry.get(sessionId) ?? registry.list().find((a) => (a as { session?: { id: string } }).session?.id === sessionId);
 }
 
 /** Resolve the agent loop (cancel support), optional. */

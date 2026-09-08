@@ -6,7 +6,7 @@
 - insert:
     - id: cursorkit-host
       name: '@dsh-cursorkit/host-dsh'
-      inject: [sessions, agentLoop]
+      inject: [sessions, agents, agentLoop, approval]
       config:
         port: 0 # 0 = auto-assign; actual port + token go to runtime.json
         tokenFile: '$DSH_HOME/.cursorkit/runtime.json'

@@ -31,7 +31,7 @@ import { EventBus } from './sse.ts';
 import { extractBearer, tokenMatches } from './auth.ts';
 import { httpStatusForCode, HttpError } from './errors.ts';
 import type { ApprovalBridge } from '../bridge/approval-bridge.ts';
-import type { SessionStoreView, AgentView } from '../compat/sessions.ts';
+import type { SessionStoreView, AgentRegistryView } from '../compat/sessions.ts';
 
 export interface ServerDeps {
   token: string;
@@ -39,7 +39,7 @@ export interface ServerDeps {
   bus: EventBus;
   approvals: ApprovalBridge;
   sessions: SessionStoreView;
-  agent: AgentView;
+  agents: AgentRegistryView;
   /** Return the app version string. */
   appVersion: string;
 }
@@ -81,8 +81,8 @@ function readBody(req: IncomingMessage): Promise<unknown> {
 }
 
 export function startServer(deps: ServerDeps): Promise<ServerHandle> {
-  const { token, capabilities, bus, approvals, sessions, agent } = deps;
-  const router = new Router({ sessions, agent, approvals, bus, capabilities, dshVersion: deps.appVersion });
+  const { token, capabilities, bus, approvals, sessions, agents } = deps;
+  const router = new Router({ sessions, agents, approvals, bus, capabilities, dshVersion: deps.appVersion });
   const startedAt = Date.now();
 
   const server: Server = createServer(async (req, res) => {

@@ -49,10 +49,9 @@ const sessionsView = {
   flush: async () => true,
 };
 
-const agentView = {
-  send: () => {},
-  cancel: async () => {},
-  inbox: { append: () => {} },
+const agentRegistry = {
+  get: () => ({ send: () => {}, cancel: async () => {}, inbox: { append: () => {} } }),
+  list: () => [],
 };
 
 describe('M1 core loop (host × client integration)', () => {
@@ -66,7 +65,7 @@ describe('M1 core loop (host × client integration)', () => {
       bus,
       approvals,
       sessions: sessionsView as never,
-      agent: agentView as never,
+      agents: agentRegistry as never,
       appVersion: '0.1.1-rc.2',
     });
 

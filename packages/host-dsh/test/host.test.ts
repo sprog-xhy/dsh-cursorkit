@@ -3,8 +3,11 @@ import { EventBus } from '../src/rpc/sse.ts';
 import { translateRawEvent } from '../src/bridge/session-bridge.ts';
 import { ApprovalBridge, inferRisks } from '../src/bridge/approval-bridge.ts';
 import { tokenMatches, extractBearer } from '../src/rpc/auth.ts';
-import { generateToken } from '../src/runtime-file.ts';
+import { generateToken, writeRuntimeFile, readRuntimeFile, removeRuntimeFile } from '../src/runtime-file.ts';
 import { checkVersion, CKP_PROTOCOL_VERSION } from '@dsh-cursorkit/protocol';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 describe('EventBus', () => {
   it('assigns monotonic seq and timestamps', () => {
@@ -57,27 +60,61 @@ describe('EventBus', () => {
 });
 
 describe('session-bridge translation', () => {
-  it('maps user/assistant/tool events to CKP events', () => {
-    expect(translateRawEvent('s1', { type: 'user/message', data: { text: 'hello' } })).toMatchObject({
-      sessionId: 's1',
-      type: 'message.user',
-      text: 'hello',
+  it('maps dsh user/assistant/tool events to CKP events (real shapes)', () => {
+    expect(
+      translateRawEvent('s1', {
+        type: 'user/message',
+        data: { id: 'm1', role: 'user', content: [{ type: 'text', text: 'hello' }], source: {} },
+      }),
+    ).toMatchObject({ sessionId: 's1', type: 'message.user', text: 'hello' });
+
+    expect(
+      translateRawEvent('s1', {
+        type: 'assistant/chunk',
+        data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'Hi ' } },
+      }),
+    ).toMatchObject({ type: 'message.delta', text: 'Hi ' });
+
+    const done = translateRawEvent('s1', {
+      type: 'assistant/message',
+      data: { turn: 1, step: 1, message: { id: 'm2', role: 'assistant', content: [{ type: 'text', text: 'Hi there' }], source: {} } },
     });
-    expect(translateRawEvent('s1', { type: 'assistant/chunk', data: { text: 'Hi ' } })).toMatchObject({
-      type: 'message.delta',
-      text: 'Hi ',
-    });
+    expect(done).toMatchObject({ type: 'message.done' });
+    expect((done as { message: { text: string } }).message.text).toBe('Hi there');
+
     const toolCall = translateRawEvent('s1', {
       type: 'tool/call',
-      data: { toolCallId: 'tc1', toolName: 'bash', args: { command: 'ls' } },
+      data: { turn: 1, step: 1, callId: 'tc1', name: 'bash', arguments: '{"command":"ls"}' },
     });
     expect(toolCall).toMatchObject({ type: 'tool.call' });
-    expect((toolCall as { call: { callId: string; name: string } }).call.callId).toBe('tc1');
-    expect(translateRawEvent('s1', { type: 'done', data: {} })).toMatchObject({ type: 'done', status: 'done' });
+    expect((toolCall as { call: { callId: string; name: string; args: unknown } }).call).toMatchObject({
+      callId: 'tc1',
+      name: 'bash',
+      args: { command: 'ls' },
+    });
+
+    expect(translateRawEvent('s1', { type: 'turn/start', data: { turn: 1 } })).toMatchObject({ type: 'message.delta' });
+    expect(translateRawEvent('s1', { type: 'turn/end', data: { turn: 1 } })).toBeNull();
   });
 
-  it('ignores unknown event types', () => {
-    expect(translateRawEvent('s1', { type: 'internal/whatever', data: {} })).toBeNull();
+  it('maps tool/result to output and error variants', () => {
+    const ok = translateRawEvent('s1', {
+      type: 'tool/result',
+      data: { turn: 1, step: 1, message: { id: 'm3', role: 'user', content: [{ type: 'tool_result', id: 'tc1', output: 'file1' }], source: {} } },
+    });
+    expect(ok).toMatchObject({ type: 'tool.output', callId: 'tc1', output: 'file1' });
+
+    const err = translateRawEvent('s1', {
+      type: 'tool/result',
+      data: { turn: 1, step: 1, message: { id: 'm4', role: 'user', content: [{ type: 'tool_result', id: 'tc2', output: 'boom' }], source: {} }, error: { name: 'E', code: 'X' } },
+    });
+    expect(err).toMatchObject({ type: 'tool.done', status: 'error' });
+  });
+
+  it('drops unknown internal events silently', () => {
+    expect(translateRawEvent('s1', { type: 'request/header', data: {} })).toBeNull();
+    expect(translateRawEvent('s1', { type: 'approval/asked', data: {} })).toBeNull();
+    expect(translateRawEvent('s1', { type: 'approval/decided', data: {} })).toBeNull();
   });
 });
 
@@ -134,5 +171,48 @@ describe('protocol version alignment', () => {
   it('host advertises a version the client accepts', () => {
     const r = checkVersion(CKP_PROTOCOL_VERSION);
     expect(r.compatible).toBe(true);
+  });
+});
+
+describe('EventBus snapshot persistence', () => {
+  it('round-trips seq and ring across a restore', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ckp-bus-'));
+    const file = join(dir, 'bus.json');
+    const bus1 = new EventBus();
+    bus1.emit({ sessionId: 's1', type: 'message.user', text: 'a' });
+    bus1.emit({ sessionId: 's1', type: 'message.delta', text: 'b' });
+    await bus1.saveSnapshot(file);
+
+    const bus2 = new EventBus();
+    expect(await bus2.restoreSnapshot(file)).toBe(true);
+    expect(bus2.lastSeq).toBe(2);
+    const replay = bus2.replayFrom(1);
+    expect(replay?.map((e) => e.seq)).toEqual([2]);
+    expect(replay?.[0]).toMatchObject({ type: 'message.delta', text: 'b' });
+
+    await bus2.clearSnapshot(file);
+    const bus3 = new EventBus();
+    expect(await bus3.restoreSnapshot(file)).toBe(false);
+  });
+});
+
+describe('runtime-file', () => {
+  it('writes and reads runtime.json with round-trip integrity', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ckp-rt-'));
+    const file = join(dir, 'runtime.json');
+    const info = {
+      pid: 1234,
+      port: 8080,
+      token: generateToken(),
+      protocolVersion: CKP_PROTOCOL_VERSION,
+      dshVersion: '0.1.1-rc.2',
+      startedAt: new Date().toISOString(),
+      pidfile: join(dir, 'host.pid'),
+    };
+    await writeRuntimeFile(file, info);
+    const back = await readRuntimeFile(file);
+    expect(back).toMatchObject({ pid: 1234, port: 8080, token: info.token });
+    await removeRuntimeFile(file);
+    expect(await readRuntimeFile(file)).toBeNull();
   });
 });
