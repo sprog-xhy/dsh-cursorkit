@@ -17,7 +17,7 @@ import { ApprovalBridge } from './bridge/approval-bridge.ts';
 import { generateToken, writeRuntimeFile, removeRuntimeFile, readRuntimeFile, type RuntimeInfo } from './runtime-file.ts';
 import { need, CapabilityMissingError } from './compat/ctx.ts';
 import { sessions as sessionsCompat, agents as agentsCompat } from './compat/sessions.ts';
-import { translateRawEvent, type RawCkpEvent, type RawSessionEvent } from './bridge/session-bridge.ts';
+import { translateRawEvent, SessionBridgeTracker, type RawCkpEvent, type RawSessionEvent } from './bridge/session-bridge.ts';
 import { registerDshAnswerer } from './bridge/dsh-approval-adapter.ts';
 import { CKP_PROTOCOL_VERSION } from '@dsh-cursorkit/protocol';
 
@@ -255,9 +255,17 @@ export function apply(ctx: HostCtx, config: HostConfig = {}): void {
 
         // 4. Bridge dsh session/event firehose → CKP events.
         const listeners: unknown[] = [];
+        const bridgeTracker = new SessionBridgeTracker();
         const onEvent = (session: { id: string }, event: unknown) => {
-          const translated = translateRawEvent(session.id, event as never);
+          const raw = event as never;
+          const translated = translateRawEvent(session.id, raw);
           if (translated) bus.emit(translated as never);
+          // Track tool/call for file.changed inference on the matching result.
+          if ((raw as RawSessionEvent).type?.startsWith('tool/call')) {
+            bridgeTracker.noteCall(raw as RawSessionEvent);
+          }
+          const fileChange = bridgeTracker.maybeFileChange(raw as RawSessionEvent);
+          if (fileChange) bus.emit(fileChange as never);
         };
         const onCreated = (session: { id: string }) => {
           bus.emit({

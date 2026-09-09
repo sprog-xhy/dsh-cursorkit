@@ -18,6 +18,8 @@
  * @module @dsh-cursorkit/host-dsh/bridge/session-bridge
  */
 
+import { inferFileChange } from './file-change.ts';
+
 /** Raw dsh session event (structural subset we care about). */
 export interface RawSessionEvent {
   seq?: number;
@@ -191,4 +193,56 @@ export interface RawCkpEvent {
   sessionId: string;
   type: string;
   [key: string]: unknown;
+}
+
+/**
+ * Stateful tracker bridging tool calls → CKP events.
+ *
+ * translateRawEvent is a pure single-event mapper; dsh emits tool/call and
+ * tool/result as separate events, and file.changed inference needs the call's
+ * name/args at result time. This class holds the per-callId context between
+ * events and can emit an extra file.changed alongside the tool.done mapping.
+ */
+export class SessionBridgeTracker {
+  private readonly calls = new Map<string, { name: string; args: unknown }>();
+
+  /** Record a tool/call event. Call after translateRawEvent for the same raw. */
+  noteCall(raw: RawSessionEvent): void {
+    const d = raw.data ?? {};
+    const callId = String(d.callId ?? '');
+    if (!callId) return;
+    this.calls.set(callId, { name: String(d.name ?? ''), args: d.arguments ?? d.args });
+    // Bound memory: drop old entries when the map grows large.
+    if (this.calls.size > 500) {
+      const first = this.calls.keys().next().value;
+      if (first !== undefined) this.calls.delete(first);
+    }
+  }
+
+  /**
+   * Given a tool/result raw event, return an optional file.changed payload.
+   * Call AFTER translateRawEvent for the same raw (which emits tool.output/
+   * tool.done); the tracker supplies the write-inference supplement.
+   */
+  maybeFileChange(raw: RawSessionEvent): RawCkpEvent | null {
+    if (!raw.type?.startsWith('tool/result')) return null;
+    const d = raw.data ?? {};
+    const callId = String((d.message as { callId?: string } | undefined)?.callId ?? '');
+    const call = callId ? this.calls.get(callId) : undefined;
+    if (!call) return null;
+    // Consume the entry (a result happens once per call).
+    this.calls.delete(callId);
+    const change = inferFileChange(
+      (raw as { sessionId?: string }).sessionId ?? '',
+      call.name,
+      call.args,
+      typeof d.text === 'string' ? d.text : '',
+    );
+    if (!change) return null;
+    return {
+      sessionId: (raw as { sessionId?: string }).sessionId ?? '',
+      type: 'file.changed',
+      change,
+    } as RawCkpEvent;
+  }
 }
