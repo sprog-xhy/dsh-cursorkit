@@ -50,6 +50,37 @@ importers:
         specifier: ^2.1.9
         version: 2.1.9(@types/node@22.20.1)(jsdom@25.0.1(supports-color@7.1.0))(supports-color@7.1.0)
 
+  packages/features:
+    dependencies:
+      '@dsh-cursorkit/client':
+        specifier: workspace:*
+        version: link:../client
+      '@dsh-cursorkit/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@dsh-cursorkit/ui-kit':
+        specifier: workspace:*
+        version: link:../ui-kit
+    devDependencies:
+      '@types/react':
+        specifier: ^18.3.0
+        version: 18.3.31
+      '@types/react-dom':
+        specifier: ^18.3.0
+        version: 18.3.0
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: ^18.3.1
+        version: 18.3.1(react@18.3.1)
+      typescript:
+        specifier: ^5.7.3
+        version: 5.7.3
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@22.20.1)(jsdom@25.0.1(supports-color@7.1.0))(supports-color@7.1.0)
+
   packages/host-dsh:
     devDependencies:
       '@deepseek-ai/cordis':
