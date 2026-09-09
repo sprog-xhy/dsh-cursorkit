@@ -22,7 +22,11 @@ import { createTray, registerGlobalShortcuts, unregisterGlobalShortcuts, openNew
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = join(__dirname, '..');
-const WEB_DIST = join(APP_ROOT, '..', 'web', 'dist');
+// Packaged build: web dist ships as an extraResource under resourcesPath.
+const PACKAGED_WEB_DIST = process.resourcesPath ? join(process.resourcesPath, 'web-dist') : null;
+const WEB_DIST = existsSync(join(PACKAGED_WEB_DIST ?? '', 'index.html'))
+  ? PACKAGED_WEB_DIST
+  : join(APP_ROOT, '..', 'web', 'dist');
 
 /**
  * Serve the built web UI over localhost HTTP. Electron cannot dynamically

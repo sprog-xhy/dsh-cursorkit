@@ -1,7 +1,7 @@
 {
   "name": "@dsh-cursorkit/desktop",
   "version": "0.1.0",
-  "description": "Desktop shell — Electron implementation (sidecar manager + keychain + native window). Tauri 2 remains the preferred target for production builds.",
+  "description": "Claude Desktop / Codex Desktop 风格桌面客户端 for DeepSeek Harness",
   "license": "MIT",
   "private": true,
   "type": "module",
@@ -10,9 +10,56 @@
     "start": "electron .",
     "build": "node ./scripts/build-stub.mjs",
     "typecheck": "node ./scripts/build-stub.mjs",
-    "test": "node ./scripts/build-stub.mjs"
+    "test": "node ./scripts/build-stub.mjs",
+    "pack": "cd ../web && pnpm build && cd ../desktop && electron-builder --dir",
+    "dist": "cd ../web && pnpm build && cd ../desktop && electron-builder"
   },
   "devDependencies": {
-    "electron": "^44.3.0"
-  }
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.sprogxhy.dshcursorkit",
+    "productName": "dsh-cursorkit",
+    "files": [
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../web/dist",
+        "to": "web-dist"
+      }
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "assets/tray-icon.png"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.developer-tools",
+      "icon": "assets/tray-icon.png"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development",
+      "icon": "assets/tray-icon.png",
+      "maintainer": "sprogx <sprog_xhy@163.com>",
+      "synopsis": "dsh-cursorkit DeepSeek Harness desktop client"
+    },
+    "executableName": "dsh-cursorkit",
+    "artifactName": "dsh-cursorkit-${version}-${os}-${arch}.${ext}"
+  },
+  "author": "sprogx",
+  "homepage": "https://github.com/sprog-xhy/dsh-cursorkit"
 }
