@@ -1,6 +1,9 @@
 packages:
   - 'packages/*'
-  - 'extensions/*'
+  - 'extensions/vscode'
+  - 'extensions/vscode/webview'
   - 'fixtures'
 allowBuilds:
   esbuild: true
+  '@vscode/vsce-sign': false
+  keytar: false

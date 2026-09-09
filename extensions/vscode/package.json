@@ -1,0 +1,95 @@
+{
+  "name": "dsh-cursorkit",
+  "displayName": "DSH CursorKit",
+  "description": "Cursor 同款 AI IDE：以 dsh 为 agent 内核的 AI 编程助手（Chat / Agent / Tab 补全 / Ctrl+K / Checkpoint）",
+  "version": "0.1.0",
+  "publisher": "sprogx",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": ["AI", "Programming Languages", "Other"],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "dshCursorkit.newChat", "title": "DSH CursorKit: New Chat", "icon": "$(comment-discussion)" },
+      { "command": "dshCursorkit.openChat", "title": "DSH CursorKit: Open Chat" },
+      { "command": "dshCursorkit.stop", "title": "DSH CursorKit: Stop" },
+      { "command": "dshCursorkit.editCode", "title": "DSH CursorKit: Edit Code (Ctrl+K)", "icon": "$(pencil)" },
+      { "command": "dshCursorkit.toggleTab", "title": "DSH CursorKit: Toggle Tab Completion" },
+      { "command": "dshCursorkit.openSettings", "title": "DSH CursorKit: Settings" }
+    ],
+    "keybindings": [
+      { "command": "dshCursorkit.openChat", "key": "ctrl+alt+c", "when": "!chatInputFocused" },
+      { "command": "dshCursorkit.editCode", "key": "ctrl+k", "when": "editorTextFocus && !suggestWidgetVisible" },
+      { "command": "dshCursorkit.toggleTab", "key": "ctrl+alt+t", "when": "editorTextFocus" }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        { "id": "dshCursorkit", "title": "DSH CursorKit", "icon": "$(sparkle)" }
+      ]
+    },
+    "views": {
+      "dshCursorkit": [
+        { "id": "dshCursorkit.chat", "name": "Chat", "type": "webview" },
+        { "id": "dshCursorkit.sessions", "name": "Sessions", "icon": "$(list-unordered)" }
+      ]
+    },
+    "configuration": {
+      "title": "DSH CursorKit",
+      "properties": {
+        "dshCursorkit.sidecar.dshHome": {
+          "type": "string",
+          "default": "",
+          "description": "dsh 数据目录（DSH_HOME）。留空 = ~/.dsh-cursorkit"
+        },
+        "dshCursorkit.sidecar.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "激活时自动启动 sidecar"
+        },
+        "dshCursorkit.chat.defaultModel": {
+          "type": "string",
+          "default": "wps/kimi-k2.7-code",
+          "description": "默认模型（provider/model）"
+        },
+        "dshCursorkit.tab.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "启用 Tab 补全"
+        },
+        "dshCursorkit.tab.debounceMs": {
+          "type": "number",
+          "default": 200,
+          "description": "Tab 补全触发防抖（毫秒）"
+        },
+        "dshCursorkit.permission.mode": {
+          "type": "string",
+          "enum": ["danger-full-access", "workspace-write", "default"],
+          "default": "danger-full-access",
+          "description": "dsh 权限模式（Cursor 风格：默认自动执行）"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@dsh-cursorkit/client": "workspace:*",
+    "@dsh-cursorkit/protocol": "workspace:*",
+    "@types/vscode": "^1.95.0",
+    "@types/node": "^22.20.1",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.9",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "@vscode/vsce": "^3.2.1"
+  }
+}
