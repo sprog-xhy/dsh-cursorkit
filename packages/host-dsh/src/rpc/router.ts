@@ -16,6 +16,7 @@ import type { EventBus } from './sse.ts';
 import type { SessionStoreView, AgentView, AgentRegistryView } from '../compat/sessions.ts';
 import { computeFileChanges } from '../diff/git-diff.ts';
 import { listCheckpoints, restoreCheckpoint } from '../checkpoint/git-checkpoint.ts';
+import { listWorktrees, createWorktree, removeWorktree } from '../worktree/git-worktree.ts';
 
 export interface RouterServices {
   sessions: SessionStoreView;
@@ -71,6 +72,14 @@ export class Router {
 
   private registerDefaultHandlers(): void {
     const svc = this.services;
+
+    /** Resolve the "active" workspace: the most recently created live session's cwd. */
+    const currentWorkspace = (s: RouterServices): string | undefined => {
+      const list = s.sessions.list();
+      if (list.length === 0) return undefined;
+      const newest = [...list].sort((a, b) => (b.header?.createdAt ?? 0) - (a.header?.createdAt ?? 0))[0];
+      return newest?.header?.cwd;
+    };
 
     this.register('session.list', () => {
       return svc.sessions.list().map((s) => ({
@@ -239,13 +248,27 @@ export class Router {
       }
       throw new CkpError('CAPABILITY_MISSING', undefined, ['sessions.fork']);
     });
-    this.register('worktree.list', () => []);
-    this.register('worktree.create', (params) => ({
-      name: params.name,
-      path: `.worktrees/${params.name}`,
-      branch: params.name,
-    }));
-    this.register('worktree.remove', () => undefined);
+    this.register('worktree.list', async () => {
+      const workspace = currentWorkspace(svc);
+      if (workspace) return await listWorktrees(workspace);
+      return [];
+    });
+
+    this.register('worktree.create', async (params) => {
+      const workspace = currentWorkspace(svc);
+      if (!workspace) throw new CkpError('SESSION_NOT_FOUND', 'no active workspace session');
+      const entry = await createWorktree(workspace, params.name, params.base);
+      if (!entry) throw new CkpError('INTERNAL', `failed to create worktree ${params.name}`);
+      return entry;
+    });
+
+    this.register('worktree.remove', async (params) => {
+      const workspace = currentWorkspace(svc);
+      if (!workspace) throw new CkpError('SESSION_NOT_FOUND', 'no active workspace session');
+      const ok = await removeWorktree(workspace, params.name);
+      if (!ok) throw new CkpError('INTERNAL', `failed to remove worktree ${params.name} (dirty?)`);
+      return undefined;
+    });
     this.register('diff.get', async (params) => {
       // Compute diff from the session's workspace (git-based).
       if (params.sessionId) {
