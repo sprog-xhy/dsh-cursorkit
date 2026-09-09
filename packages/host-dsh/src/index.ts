@@ -264,7 +264,7 @@ export function apply(ctx: HostCtx, config: HostConfig = {}): void {
           if ((raw as RawSessionEvent).type?.startsWith('tool/call')) {
             bridgeTracker.noteCall(raw as RawSessionEvent);
           }
-          const fileChange = bridgeTracker.maybeFileChange(raw as RawSessionEvent);
+          const fileChange = bridgeTracker.maybeFileChange(session.id, raw as RawSessionEvent);
           if (fileChange) bus.emit(fileChange as never);
         };
         const onCreated = (session: { id: string }) => {

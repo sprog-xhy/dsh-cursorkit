@@ -97,16 +97,16 @@ describe('session-bridge translation', () => {
     expect(translateRawEvent('s1', { type: 'turn/end', data: { turn: 1 } })).toBeNull();
   });
 
-  it('maps tool/result to output and error variants', () => {
+  it('maps tool/result to output and error variants (real dsh shapes)', () => {
     const ok = translateRawEvent('s1', {
       type: 'tool/result',
-      data: { turn: 1, step: 1, message: { id: 'm3', role: 'user', content: [{ type: 'tool_result', id: 'tc1', output: 'file1' }], source: {} } },
+      data: { turn: 1, step: 1, message: { id: 'm3', role: 'user', content: [{ type: 'tool-result', toolCallId: 'tc1', content: [{ type: 'text', text: 'file1' }] }], source: {} } },
     });
-    expect(ok).toMatchObject({ type: 'tool.output', callId: 'tc1', output: 'file1' });
+    expect(ok).toMatchObject({ type: 'tool.output', callId: 'tc1' });
 
     const err = translateRawEvent('s1', {
       type: 'tool/result',
-      data: { turn: 1, step: 1, message: { id: 'm4', role: 'user', content: [{ type: 'tool_result', id: 'tc2', output: 'boom' }], source: {} }, error: { name: 'E', code: 'X' } },
+      data: { turn: 1, step: 1, message: { id: 'm4', role: 'user', content: [{ type: 'tool-result', toolCallId: 'tc2', content: [{ type: 'text', text: 'boom' }], isError: true }], source: {} } },
     });
     expect(err).toMatchObject({ type: 'tool.done', status: 'error' });
   });

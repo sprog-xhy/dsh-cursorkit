@@ -35,6 +35,9 @@ interface DshContentBlock {
   name?: string;
   id?: string;
   input?: unknown;
+  /** tool-result blocks correlate via this (verified real shape). */
+  toolCallId?: string;
+  isError?: boolean;
   [key: string]: unknown;
 }
 
@@ -125,14 +128,16 @@ export function translateRawEvent(
 
     case 'tool/result': {
       const block = (message?.content as DshContentBlock[] | undefined)?.[0];
+      // dsh ToolResultBlock uses `toolCallId` (not `id`).
       const callId = String(
+        block?.toolCallId ??
         block?.id ??
         (d.message as { callId?: string } | undefined)?.callId ??
         '',
       );
       // ToolResultBlock carries its text in `output`; fall back to contentToText.
       const text = typeof block?.output === 'string' ? block.output : contentToText(message?.content);
-      const isError = typeof d.error === 'object' && d.error !== null;
+      const isError = typeof d.error === 'object' && d.error !== null || block?.isError === true;
       return {
         sessionId,
         type: isError ? 'tool.done' : 'tool.output',
@@ -211,7 +216,15 @@ export class SessionBridgeTracker {
     const d = raw.data ?? {};
     const callId = String(d.callId ?? '');
     if (!callId) return;
-    this.calls.set(callId, { name: String(d.name ?? ''), args: d.arguments ?? d.args });
+    let args: unknown = d.arguments ?? d.args;
+    if (typeof args === 'string') {
+      try {
+        args = JSON.parse(args);
+      } catch {
+        args = { raw: args };
+      }
+    }
+    this.calls.set(callId, { name: String(d.name ?? ''), args });
     // Bound memory: drop old entries when the map grows large.
     if (this.calls.size > 500) {
       const first = this.calls.keys().next().value;
@@ -224,23 +237,24 @@ export class SessionBridgeTracker {
    * Call AFTER translateRawEvent for the same raw (which emits tool.output/
    * tool.done); the tracker supplies the write-inference supplement.
    */
-  maybeFileChange(raw: RawSessionEvent): RawCkpEvent | null {
+  maybeFileChange(sessionId: string, raw: RawSessionEvent): RawCkpEvent | null {
     if (!raw.type?.startsWith('tool/result')) return null;
     const d = raw.data ?? {};
-    const callId = String((d.message as { callId?: string } | undefined)?.callId ?? '');
+    const block = ((d.message as { content?: DshContentBlock[] } | undefined)?.content)?.[0];
+    const callId = String(block?.toolCallId ?? block?.id ?? '');
     const call = callId ? this.calls.get(callId) : undefined;
     if (!call) return null;
     // Consume the entry (a result happens once per call).
     this.calls.delete(callId);
     const change = inferFileChange(
-      (raw as { sessionId?: string }).sessionId ?? '',
+      sessionId,
       call.name,
       call.args,
       typeof d.text === 'string' ? d.text : '',
     );
     if (!change) return null;
     return {
-      sessionId: (raw as { sessionId?: string }).sessionId ?? '',
+      sessionId,
       type: 'file.changed',
       change,
     } as RawCkpEvent;
