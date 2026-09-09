@@ -14,6 +14,7 @@ import type { ApprovalBridge } from '../bridge/approval-bridge.ts';
 import type { CapabilityReport } from '../capability.ts';
 import type { EventBus } from './sse.ts';
 import type { SessionStoreView, AgentView, AgentRegistryView } from '../compat/sessions.ts';
+import { computeFileChanges } from '../diff/git-diff.ts';
 
 export interface RouterServices {
   sessions: SessionStoreView;
@@ -215,6 +216,17 @@ export class Router {
       branch: params.name,
     }));
     this.register('worktree.remove', () => undefined);
-    this.register('diff.get', () => []);
+    this.register('diff.get', async (params) => {
+      // Compute diff from the session's workspace (git-based).
+      if (params.sessionId) {
+        const s = svc.sessions.get(params.sessionId);
+        const workspace = s?.header?.cwd;
+        if (workspace) {
+          const changes = await computeFileChanges({ cwd: workspace });
+          if (changes.length > 0) return changes;
+        }
+      }
+      return [];
+    });
   }
 }
