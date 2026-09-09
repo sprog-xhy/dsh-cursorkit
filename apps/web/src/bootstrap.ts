@@ -42,6 +42,27 @@ export async function bootstrap(): Promise<BootstrapResult> {
   const dshHome = params.get('dshHome') ?? DEFAULT_HOME;
 
   try {
+    // Desktop shell path: the Electron preload exposes sidecarInfo + keyring.
+    const desktopBridge = (globalThis as Record<string, unknown>).dshDesktop as
+      | { sidecarInfo: () => Promise<unknown>; keyring?: unknown }
+      | undefined;
+
+    if (desktopBridge?.sidecarInfo) {
+      const info = (await desktopBridge.sidecarInfo()) as {
+        port?: number;
+        token?: string;
+        dshVersion?: string;
+        protocolVersion?: string;
+      };
+      if (!info?.port || !info?.token) throw new Error('desktop sidecar not reachable');
+      const baseUrl = `http://127.0.0.1:${info.port}`;
+      const client = new CkpClient({
+        transport: new HttpTransport({ baseUrl, token: info.token }),
+      });
+      bindClient(client);
+      return { client, baseUrl, dshVersion: info.dshVersion };
+    }
+
     const rt = (await fetchJson(runtimePath(dshHome))) as {
       port: number;
       token: string;
