@@ -1,7 +1,7 @@
-# M2/M3/M4 里程碑报告（代码层推进）
+# M2/M3/M4/M5 里程碑报告（代码层推进）
 
-> 日期：2026-09-09 · 状态：**代码层完成（M2 核心 + M3 部分 + M4 worktree）**
-> 范围：T-030（diff.get + file.changed）、T-033/034（checkpoint）、T-035/036（trajectory/thinking）、M3 settings、T-050（worktree）
+> 日期：2026-09-09 · 状态：**代码层完成（M2 核心 + M3 部分 + M4 worktree/并行 + M5 ext-host + desktop 壳骨架）**
+> 范围：T-030（diff.get + file.changed 端到端）、T-033/034（checkpoint + 自动生成）、T-035/036（trajectory/thinking）、M3 settings、T-050（worktree）、T-051（并行）、T-052（ext-host）、T-040 预留（keychain）
 
 ## 做了什么
 
@@ -12,12 +12,15 @@
 | T-035/036 trajectory/thinking | `features/trajectory/trajectory.ts`：buildTrajectory（时间序）+ groupBySource（按 用户输入/模型回复/思维链/工具调用 分组）；App 右栏 TrajectoryPanel 使用；ChatView 已渲染 ThinkingBlock（完成自动展开） |
 | M3 settings | `features/settings/SettingsView.tsx`：模型/MCP/插件/Skills/关于 五 Tab，全走 CKP RPC；能力缺失优雅置灰；API Key 仅提示 Keychain 管理 |
 | T-050 worktree | `host-dsh/src/worktree/git-worktree.ts`：真实 `git worktree` 管理（list porcelain 解析/create 新分支/remove 拒绝 dirty）+ router worktree RPC；修复 trim 丢末块 bug |
-| T-030 file.changed | `bridge/file-change.ts` 工具写文件推断 + `SessionBridgeTracker`（跨 tool/call→result 记住上下文，结果时补发 file.changed）；接入 onEvent 链路 |
+| T-030 file.changed | `bridge/file-change.ts` 工具写文件推断 + `SessionBridgeTracker`（跨 tool/call→result 记住上下文，结果时补发 file.changed）；接入 onEvent 链路；**端到端验证：kimi-k2.7-code 真实调用 bash 工具 → file.changed 事件经 SSE 送达** |
+| T-033 自动 checkpoint | `checkpoint/auto-checkpoint.ts`：file.changed → 自动 git checkpoint（throttle 60s + checkpoint.created 回发）；接入插件入口 |
+| T-051 多会话并行 | `features/sessions/parallel/ParallelView`：spawn N 会话同 prompt + best-of-n 并排对比；接入 web 壳第三视图 |
+| T-040 预留 | `apps/desktop`：SidecarManager 状态机契约 + Keychain 接口（Tauri/Electron），无 rust/electron 环境仅骨架 |
 | T-018/T-005（前序） | features 三栏布局 + apps/web 浏览器壳（Vite），含 对话/设置 视图切换 |
 
 ## 验证了什么
 
-- **全量测试 79 项全绿**：protocol 11 / client 14 / ui-kit 8 / host-dsh 37（+git-diff 4、checkpoint 3、worktree 3、file-change 4）/ features 3 / fixtures 6。
+- **全量测试 87 项全绿**：protocol 11 / client 14 / ui-kit 8 / host-dsh 40（+git-diff 4、checkpoint 3、worktree 3、file-change 4、auto-checkpoint 3）/ features 8（+trajectory 3、parallel 2、ext-host 3）/ fixtures 6。
 - **T-020 验收 15/15 依旧通过**（真实 wps 模型回复 + 断线重连快照回放）。
 - **diff.get 端到端**：真实 sidecar 上，`/tmp/demo-git` 会话返回 b.txt（untracked +2）与 a.txt（+1）完整 patch。
 - **checkpoint RPC**：list 空列表、restore 不存在 → `SESSION_NOT_FOUND` 错误码正确。
@@ -26,7 +29,8 @@
 
 ## 被 BLOCK 了什么
 
-- `file.changed` **真实触发**：依赖模型实际调用写文件工具。deepseek-v4-flash 对工具遵循不稳定（多次提示均未调工具），非代码问题——桥接逻辑已用 4 项单测确定性覆盖并接入 onEvent 链路，真实触发留待工具遵循稳定的模型环境。
+- `file.changed` **真实触发已解决（kimi-k2.7-code）**：该模型真实调用 bash 工具，`file.changed`（path=/tmp/ckp4.txt）经 SSE 送达前端。工具**实际执行成功**仍受 dsh sandbox 影响（本机 `spawn bwrap ENOENT`——bwrap 存在但 dsh 进程内 spawn 细节失败），`additions>0` 留待 sandbox 环境调优；路径推断与事件链路已完整验证。
+- checkpoint 自动生成 hook 已实现并单测覆盖（file.changed→checkpoint）；真实触发随工具执行环境。
 - checkpoint 的「每次写入前自动生成」hook：同上依赖工具执行事件，留待真实环境。
 - Keychain 集成（T-040）：浏览器壳无 OS Keychain；桌面壳（Tauri/Electron）阶段实现。本机无 rust/electron 工具链，壳骨架留作下一步。
 
