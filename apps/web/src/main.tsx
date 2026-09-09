@@ -4,8 +4,28 @@
 
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { App } from '@dsh-cursorkit/features';
+import { useMemo, useState } from 'react';
+import { App, SettingsView } from '@dsh-cursorkit/features';
+import type { CkpClient } from '@dsh-cursorkit/client';
 import { bootstrap } from './bootstrap.ts';
+
+function Shell({ client }: { client: CkpClient }) {
+  const [view, setView] = useState<'chat' | 'settings'>('chat');
+  const app = useMemo(() => <App client={client} />, [client]);
+  return (
+    <>
+      <div style={shellBar}>
+        <button onClick={() => setView('chat')} style={view === 'chat' ? barBtnActive : barBtn}>对话</button>
+        <button onClick={() => setView('settings')} style={view === 'settings' ? barBtnActive : barBtn}>设置</button>
+      </div>
+      {view === 'chat' ? app : <SettingsView client={client} />}
+    </>
+  );
+}
+
+const shellBar: React.CSSProperties = { display: 'flex', gap: 4, padding: '6px 10px', background: '#111827', position: 'sticky', top: 0, zIndex: 10 };
+const barBtn: React.CSSProperties = { border: 'none', background: 'none', color: '#9ca3af', padding: '4px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5 };
+const barBtnActive: React.CSSProperties = { ...barBtn, background: '#374151', color: '#fff' };
 
 async function main() {
   const result = await bootstrap();
@@ -29,7 +49,7 @@ async function main() {
 
   root.render(
     <StrictMode>
-      <App client={result.client} />
+      <Shell client={result.client} />
     </StrictMode>,
   );
 }
