@@ -12,6 +12,7 @@ import { ChatView } from './chat/ChatView.tsx';
 import { SessionsSidebar } from './sessions/SessionsSidebar.tsx';
 import { StatusBar } from '@dsh-cursorkit/ui-kit';
 import { TrajectoryPanel } from '@dsh-cursorkit/ui-kit';
+import { buildTrajectory } from './trajectory/trajectory.ts';
 import { ChangesPanel } from './changes/ChangesPanel.tsx';
 import { CheckpointsPanel } from './checkpoints/CheckpointsPanel.tsx';
 
@@ -53,7 +54,7 @@ export function App({ client }: AppProps) {
         <ChatView client={client} sessionId={effectiveSessionId} />
         <div style={styles.rail}>
           <RailHeader tab={railTab} onTab={setRailTab} />
-          {railTab === 'trajectory' && <TrajectoryPanel items={trajectoryItems(session.state)} />}
+          {railTab === 'trajectory' && <TrajectoryPanel items={buildTrajectory(session.state)} />}
           {railTab === 'changes' && <ChangesPanel state={session.state} />}
           {railTab === 'checkpoints' && <CheckpointsPanel state={session.state} />}
         </div>
@@ -88,20 +89,6 @@ function RailHeader({ tab, onTab }: { tab: RailTab; onTab: (t: RailTab) => void 
       ))}
     </div>
   );
-}
-
-function trajectoryItems(state: ReturnType<typeof useSession>['state']) {
-  if (!state) return [];
-  const items: Array<{ id: string; source: string; title: string; payload?: unknown; ts: number }> = [];
-  for (const m of state.messages) {
-    if (m.role === 'user') items.push({ id: `msg-${m.id}`, source: '用户输入', title: m.text.slice(0, 60), ts: m.createdAt });
-    if (m.role === 'assistant') items.push({ id: `msg-${m.id}`, source: '模型回复', title: m.text.slice(0, 60), ts: m.createdAt });
-  }
-  for (const t of state.thinking) items.push({ id: `think-${t.id}`, source: '思维链', title: t.text.slice(0, 60), ts: Date.now() });
-  for (const tc of Object.values(state.toolCalls)) {
-    items.push({ id: `tool-${tc.callId}`, source: '工具调用', title: `${tc.name} (${tc.status})`, payload: tc, ts: tc.startedAt ?? Date.now() });
-  }
-  return items.sort((a, b) => a.ts - b.ts);
 }
 
 const styles: Record<string, React.CSSProperties> = {
