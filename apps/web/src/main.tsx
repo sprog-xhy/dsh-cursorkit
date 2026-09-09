@@ -5,20 +5,21 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { useMemo, useState } from 'react';
-import { App, SettingsView } from '@dsh-cursorkit/features';
+import { App, ParallelView, SettingsView } from '@dsh-cursorkit/features';
 import type { CkpClient } from '@dsh-cursorkit/client';
 import { bootstrap } from './bootstrap.ts';
 
 function Shell({ client }: { client: CkpClient }) {
-  const [view, setView] = useState<'chat' | 'settings'>('chat');
+  const [view, setView] = useState<'chat' | 'settings' | 'parallel'>('chat');
   const app = useMemo(() => <App client={client} />, [client]);
   return (
     <>
       <div style={shellBar}>
         <button onClick={() => setView('chat')} style={view === 'chat' ? barBtnActive : barBtn}>对话</button>
         <button onClick={() => setView('settings')} style={view === 'settings' ? barBtnActive : barBtn}>设置</button>
+        <button onClick={() => setView('parallel')} style={view === 'parallel' ? barBtnActive : barBtn}>并行</button>
       </div>
-      {view === 'chat' ? app : <SettingsView client={client} />}
+      {view === 'chat' ? app : view === 'settings' ? <SettingsView client={client} /> : <ParallelView client={client} />}
     </>
   );
 }
