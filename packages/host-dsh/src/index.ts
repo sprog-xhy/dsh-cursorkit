@@ -19,6 +19,7 @@ import { need, CapabilityMissingError } from './compat/ctx.ts';
 import { sessions as sessionsCompat, agents as agentsCompat } from './compat/sessions.ts';
 import { translateRawEvent, SessionBridgeTracker, type RawCkpEvent, type RawSessionEvent } from './bridge/session-bridge.ts';
 import { registerDshAnswerer } from './bridge/dsh-approval-adapter.ts';
+import { attachAutoCheckpoint } from './checkpoint/auto-checkpoint.ts';
 import { CKP_PROTOCOL_VERSION } from '@dsh-cursorkit/protocol';
 
 /** Public API surface — plugin entry plus the pieces a host harness needs to
@@ -294,6 +295,15 @@ export function apply(ctx: HostCtx, config: HostConfig = {}): void {
         // 5. Bridge dsh approval seam → CKP approvals (when ctx.approval exists).
         const disposeAnswerer = registerDshAnswerer(ctx as never, { bridge: approvals, bus });
         listeners.push(disposeAnswerer);
+
+        // 6. Auto-checkpoint: when the bridge infers a file.changed, snapshot
+        // the workspace (throttled) so the user can restore before the write.
+        const resolveWorkspace = (sessionId: string): string | undefined => {
+          const s = sessionsCompat(ctx).get(sessionId);
+          return s?.header?.cwd;
+        };
+        const disposeAutoCheckpoint = attachAutoCheckpoint(bus, resolveWorkspace, { throttleMs: 60_000 });
+        listeners.push(disposeAutoCheckpoint);
 
         return async () => {
           disposed = true;
