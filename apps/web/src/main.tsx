@@ -10,7 +10,10 @@ import type { CkpClient } from '@dsh-cursorkit/client';
 import { bootstrap } from './bootstrap.ts';
 
 function Shell({ client }: { client: CkpClient }) {
-  const [view, setView] = useState<'chat' | 'settings' | 'parallel'>('chat');
+  const [view, setView] = useState<'chat' | 'settings' | 'parallel'>(() => {
+    const v = new URLSearchParams(location.search).get('view');
+    return v === 'settings' || v === 'parallel' ? v : 'chat';
+  });
   const app = useMemo(() => <App client={client} onNavigate={(v) => setView(v as 'chat' | 'settings' | 'parallel')} />, [client]);
   return (
     <>

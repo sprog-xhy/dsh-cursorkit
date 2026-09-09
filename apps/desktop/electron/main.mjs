@@ -18,6 +18,7 @@ import { join, dirname, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { createServer } from 'node:http';
+import { createTray, registerGlobalShortcuts, unregisterGlobalShortcuts, openNewWindow } from './shell-extras.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = join(__dirname, '..');
@@ -131,6 +132,17 @@ async function ensureSidecar() {
 let mainWindow = null;
 let staticServer = null;
 let staticPort = 0;
+let tray = null;
+
+function toggleMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow();
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  if (mainWindow.isVisible()) mainWindow.hide();
+  else mainWindow.show();
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -202,28 +214,60 @@ ipcMain.handle('sidecar:info', async () => {
   return info ? { ...info, dshHome: DSH_HOME } : null;
 });
 
+// ── M5: tray / global shortcut / multi-window IPC ────────────────
+ipcMain.handle('shell:new-window', (_e, view = 'chat') => {
+  return openNewWindow(staticPort, DSH_HOME, view) ? true : false;
+});
+
 // ── Lifecycle ────────────────────────────────────────────────────
 app.whenReady().then(() => {
   // Serve the built web UI over loopback HTTP (ESM dynamic import works).
+  const boot = () => {
+    if (mainWindow && !mainWindow.isDestroyed()) return;
+    createWindow();
+  };
   if (existsSync(WEB_DIST)) {
     staticServer = createStaticServer(WEB_DIST);
     staticServer.listen(0, '127.0.0.1', () => {
       staticPort = staticServer.address().port;
-      createWindow();
+      boot();
     });
   } else {
-    createWindow();
+    boot();
   }
+
+  // Tray (best-effort; some Linux DEs lack tray support).
+  try {
+    tray = createTray(
+      toggleMainWindow,
+      () => openNewWindow(staticPort, DSH_HOME, 'chat'),
+      () => openNewWindow(staticPort, DSH_HOME, 'settings'),
+      () => app.quit(),
+    );
+  } catch {
+    tray = null;
+  }
+
+  // Global shortcut: Cmd/Ctrl+Shift+C toggles the main window.
+  const registered = registerGlobalShortcuts(toggleMainWindow);
+  if (!registered) console.warn('[desktop] global shortcut registration failed');
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
+app.on('will-quit', () => {
+  unregisterGlobalShortcuts();
+});
+
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  // Keep running in tray unless explicitly quitting.
+  if (process.platform !== 'darwin' && !tray) app.quit();
 });
 
 app.on('before-quit', () => {
   if (sidecar) sidecar.kill('SIGTERM');
   if (staticServer) staticServer.close();
+  if (tray) tray.destroy();
 });
