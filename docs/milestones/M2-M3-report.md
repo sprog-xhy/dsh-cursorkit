@@ -29,8 +29,11 @@
 
 ## 被 BLOCK 了什么
 
-- `file.changed` **真实触发已解决（kimi-k2.7-code）**：该模型真实调用 bash 工具，`file.changed`（path=/tmp/ckp4.txt）经 SSE 送达前端。工具**实际执行成功**仍受 dsh sandbox 影响（本机 `spawn bwrap ENOENT`——bwrap 存在但 dsh 进程内 spawn 细节失败），`additions>0` 留待 sandbox 环境调优；路径推断与事件链路已完整验证。
-- checkpoint 自动生成 hook 已实现并单测覆盖（file.changed→checkpoint）；真实触发随工具执行环境。
+- `file.changed` + `checkpoint` **真实触发完整闭环已达成（kimi-k2.7-code + danger-full-access）**：
+  1. 工具真实执行：agent 用 bash 写入 `added.txt`（内容 `auto-checkpoint-test`，沙箱外可见——workspace 目录 bind 穿透，/tmp 才是 tmpfs 隔离）。
+  2. `file.changed` 事件：`added.txt + 1`（真实行数统计）。
+  3. **自动 checkpoint 联动**：`checkpoint.created`（session-demo-1, commit 503d2a0, "auto: added.txt"），git 仓库确认提交存在。
+  - 关键经验：① danger-full-access 模式跳过 bwrap（`spawn bash ENOENT` 与 /tmp tmpfs 隔离的坑）；② 写文件须在 workspace 内（/tmp 隔离不可见）；③ agent cwd 须指向 git 仓库才能自动 checkpoint。
 - checkpoint 的「每次写入前自动生成」hook：同上依赖工具执行事件，留待真实环境。
 - Keychain 集成（T-040）：浏览器壳无 OS Keychain；桌面壳（Tauri/Electron）阶段实现。本机无 rust/electron 工具链，壳骨架留作下一步。
 

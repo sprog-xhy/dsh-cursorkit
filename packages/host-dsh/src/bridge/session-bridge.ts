@@ -246,11 +246,13 @@ export class SessionBridgeTracker {
     if (!call) return null;
     // Consume the entry (a result happens once per call).
     this.calls.delete(callId);
+    // Output text comes from the tool-result block's nested text content.
+    const output = contentToText(block?.content);
     const change = inferFileChange(
       sessionId,
       call.name,
       call.args,
-      typeof d.text === 'string' ? d.text : '',
+      output,
     );
     if (!change) return null;
     return {
