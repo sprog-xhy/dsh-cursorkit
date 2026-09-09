@@ -5,3 +5,5 @@ packages:
   - 'fixtures'
 allowBuilds:
   esbuild: true
+minimumReleaseAgeExclude:
+  - electron@44.3.0
