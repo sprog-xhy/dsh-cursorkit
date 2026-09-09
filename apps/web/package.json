@@ -1,0 +1,29 @@
+{
+  "name": "@dsh-cursorkit/web",
+  "version": "0.1.0",
+  "description": "Browser shell for the dsh-cursorkit frontend (same React SPA the desktop shell wraps)",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@dsh-cursorkit/client": "workspace:*",
+    "@dsh-cursorkit/features": "workspace:*",
+    "@dsh-cursorkit/protocol": "workspace:*",
+    "@dsh-cursorkit/ui-kit": "workspace:*",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.3",
+    "vite": "^5.4.0"
+  }
+}

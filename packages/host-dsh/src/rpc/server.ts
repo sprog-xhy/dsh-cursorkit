@@ -55,8 +55,26 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
     'content-length': Buffer.byteLength(raw),
+    // Browser shell (Vite dev/preview) is a different origin; the loopback
+    // server is local-only, so a permissive CORS policy is acceptable.
+    'access-control-allow-origin': '*',
+    'access-control-allow-methods': 'GET, POST, OPTIONS',
+    'access-control-allow-headers': 'authorization, content-type',
   });
   res.end(raw);
+}
+
+/** Handle a CORS preflight; returns true when the request is consumed. */
+function handlePreflight(req: IncomingMessage, res: ServerResponse): boolean {
+  if (req.method !== 'OPTIONS') return false;
+  res.writeHead(204, {
+    'access-control-allow-origin': '*',
+    'access-control-allow-methods': 'GET, POST, OPTIONS',
+    'access-control-allow-headers': 'authorization, content-type',
+    'access-control-max-age': '86400',
+  });
+  res.end();
+  return true;
 }
 
 function sendSse(res: ServerResponse, event: CkpEvent | { event: string; data: unknown }): void {
@@ -101,6 +119,7 @@ export function startServer(deps: ServerDeps): Promise<ServerHandle> {
   });
 
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (handlePreflight(req, res)) return;
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     const path = url.pathname;
 
@@ -159,6 +178,7 @@ export function startServer(deps: ServerDeps): Promise<ServerHandle> {
         'cache-control': 'no-cache',
         connection: 'keep-alive',
         'x-accel-buffering': 'no',
+        'access-control-allow-origin': '*',
       });
       // Send initial replay window.
       const replay = bus.replayFrom(from);
