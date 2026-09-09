@@ -1,0 +1,12 @@
+# dsh-cursorkit host plugin — cordis patch overlay
+#
+# Usage:
+#   dsh --profile cursorkit --patch ./cordis.patch.yml
+# (or a self-built profile that inserts this row; see docs/dsh-capability-audit.md §1)
+- insert:
+    - id: cursorkit-host
+      name: '@dsh-cursorkit/host-dsh'
+      inject: [sessions, agents, agentLoop, approval]
+      config:
+        port: 0 # 0 = auto-assign; actual port + token go to runtime.json
+        tokenFile: '$DSH_HOME/.cursorkit/runtime.json'

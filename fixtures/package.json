@@ -1,0 +1,35 @@
+{
+  "name": "@dsh-cursorkit/fixtures",
+  "version": "0.1.0",
+  "description": "CKP event-stream fixtures for reducer tests and UI development",
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:run": "vitest run",
+    "lint": "echo \"fixtures: no lint rules yet\""
+  },
+  "dependencies": {
+    "@dsh-cursorkit/client": "workspace:*",
+    "@dsh-cursorkit/host-dsh": "workspace:*",
+    "@dsh-cursorkit/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.9"
+  }
+}

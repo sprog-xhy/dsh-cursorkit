@@ -1,0 +1,25 @@
+{
+  "name": "@dsh-cursorkit/protocol",
+  "version": "0.1.0",
+  "description": "CKP protocol contract: shared TS types + JSON Schema for the dsh-cursorkit client and host",
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./schema/*": "./schema/*",
+    "./package.json": "./package.json"
+  },
+  "files": ["lib", "schema"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:run": "vitest run",
+    "lint": "echo \"protocol: no lint rules yet\""
+  }
+}
