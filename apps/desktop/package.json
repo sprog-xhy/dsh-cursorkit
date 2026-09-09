@@ -1,0 +1,13 @@
+{
+  "name": "@dsh-cursorkit/desktop",
+  "version": "0.1.0",
+  "description": "Desktop shell (Tauri 2 preferred / Electron fallback) — sidecar manager, keychain, native window. Skeleton only: build requires Rust (Tauri) or Node+Electron.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node ./scripts/build-stub.mjs",
+    "typecheck": "node ./scripts/build-stub.mjs",
+    "test": "node ./scripts/build-stub.mjs"
+  }
+}
