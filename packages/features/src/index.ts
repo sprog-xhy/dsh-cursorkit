@@ -9,5 +9,13 @@ export { SessionsSidebar, type SessionsSidebarProps } from './sessions/SessionsS
 export { ChangesPanel } from './changes/ChangesPanel.tsx';
 export { CheckpointsPanel } from './checkpoints/CheckpointsPanel.tsx';
 export { SettingsView, type SettingsTab } from './settings/SettingsView.tsx';
+export {
+  EMPTY_MANIFEST,
+  fetchUiContrib,
+  manifestToCommands,
+  type UiContribManifest,
+  type CommandContribution,
+  type ToolRendererContribution,
+} from './ext-host/manifest.ts';
 export { buildTrajectory, groupBySource, type TrajectoryItem } from './trajectory/trajectory.ts';
 export { bindClient, useCkpClient, useSession, useSessionList, useSessionState } from './hooks.ts';
