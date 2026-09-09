@@ -21,30 +21,25 @@
 
 ## 1. 技术栈与架构决策
 
-### D1 扩展技术栈 ⏳
-- 语言：TypeScript（必须）
-- 构建：esbuild（VSCode 扩展事实标准，快）还是 tsc？
-- Webview UI：React（成熟、可复用组件经验）还是原生 TS + DOM？
-- 推荐：TS + esbuild + React 18（webview 沙箱内渲染）
+### D1 扩展技术栈 ✅ 决定（2026-09-09）
+- **TypeScript + esbuild + React 18**（webview 沙箱内渲染）；tsc 仅类型检查
+- 构建：esbuild 秒级增量；F5 调试
 
-### D2 dsh 版本固定 ⏳
-- 候选：`0.1.1-rc.2`（本机已装、全部能力已实测验证：事件结构/权限/插件 API/approval）
-- 候选：`0.1.5-alpha.1`（npm 最新，但 alpha 阶段，API 可能变动）
-- 推荐：**固定 0.1.1-rc.2**（已验证稳定；升级留待后续单独验证）
+### D2 dsh 版本固定 ✅ 决定（2026-09-09）
+- **固定 `0.1.1-rc.2`**（本机已装、全部能力已实测验证）
+- 扩展内置 version 探测（capability），升级留待单独验证（候选 0.1.5-alpha.1 不追）
 
-### D3 扩展↔sidecar 通信方式 ⏳
-- 候选 A：sidecar 进程（`dsh --profile`）+ CKP over HTTP+SSE —— 隔离好，复用 host-dsh 插件
-- 候选 B：扩展进程内嵌 dsh 库调用 —— 无独立进程，但依赖 dsh Node API 暴露程度
-- 推荐：**A（sidecar + CKP）**，与 V1 相同，host-dsh 插件整体保留
+### D3 扩展↔sidecar 通信 ✅ 决定（2026-09-09）
+- **sidecar 进程（`dsh --profile cursorkit`）+ CKP over HTTP+SSE**
+- 复用 V1 client SDK（transport/store/reducer）
 
-### D4 是否保留 host-dsh 插件 / CKP 协议 ⏳
-- 推荐：**保留**（sidecar 侧唯一 dsh 集成层：capability/approval/checkpoint/worktree/diff），VSCode 扩展只做"IDE 适配层"，不碰 dsh 内部
+### D4 保留 host-dsh 插件 / CKP 协议 ✅ 决定（2026-09-09）
+- **保留**。host-dsh 是内核适配层（capability/approval/checkpoint/worktree/diff），与 UI 重构无关；protocol 一行不改
 
-### D5 webview 与扩展进程职责划分 ⏳
-- 扩展进程（Node）：sidecar 管理、CKP client、VSCode API 适配（diff/SCM/文件监听/终端/快捷键）
-- webview（React）：Chat / Composer / Checkpoint / Settings 面板渲染
-- 通信：`vscode.postMessage`（webview ↔ 扩展进程）→ CKP（扩展进程 ↔ sidecar）
-- 推荐：如上分层
+### D5 职责划分 ✅ 决定（2026-09-09）
+- 扩展进程（Node）：sidecar 管理、CKP client、VSCode API 适配（diff/SCM/终端/快捷键/文件）
+- webview（React）：Chat / Composer / Checkpoint / Settings 渲染
+- 通信：`vscode.postMessage`（webview↔扩展）→ CKP（扩展↔sidecar）
 
 ---
 
@@ -150,5 +145,66 @@ Cursor 876.x IDE 窗口核心元素：
 
 ---
 
-## 7. 待用户确认后填充
+## 7. 全面审视补充的决策点（2026-09-09 审视新增）
+
+> 以「用户旅程 × 工程生命周期」交叉盘点，发现以下维度在初次规划中遗漏，逐项补充为决策点：
+
+### D24 首次启动引导（onboarding） ⏳
+- 检测：node / dsh / 凭据（WPS_API_KEY）是否就绪
+- 引导：缺什么 → 给安装命令 / 配置界面 / 一键连接测试
+- 首启体验：欢迎视图？还是 Chat 面板内提示？
+- 推荐：首次激活时检查，未就绪显示引导页（含复制命令、填写凭据、测试按钮）
+
+### D25 执行中交互（进行中控制） ⏳
+- 停止/中断（V1 有 stop）、steer（中途追加指令，Cursor 2026 有 "send follow-up without interruption"）
+- 进度呈现：当前工具/文件/阶段、token 消耗
+- 推荐：Chat 内实时工具卡片 + 停止按钮 + 输入框可预填 follow-up
+
+### D26 键盘冲突管理 ⏳
+- Ctrl+K / Tab / Cmd+Enter 与 VSCode 原生键位冲突（Ctrl+K 是 VSCode 组合前缀！Tab 是缩进）
+- 策略：when 条件精确限定、与 VSCode 原生行为共存、可在 settings 覆盖
+- 必须讨论：Ctrl+K 键位在 VSCode 中已被占用（聚焦时用 Ctrl+K 触发编辑器快捷链）
+
+### D27 多项目/多工作区 ⏳
+- 一个 VSCode 窗口多文件夹（multi-root workspace）→ agent cwd 是哪个？
+- 每个项目独立索引？独立会话列表？sidecar 按 workspace 还是全局？
+
+### D28 外部编辑冲突 ⏳
+- agent 写文件时用户也在编辑同一文件 → 冲突检测/合并策略
+- 推荐：写文件前检查未保存修改；checkpoint 记录基线
+
+### D29 容错矩阵 ⏳
+- sidecar 崩溃自动重启；SSE 断线续传（V1 有）；模型限流/超时重试；wps 不可达的降级提示
+- 必须定义：哪些可自动恢复、哪些提示用户
+
+### D30 性能预算 ⏳
+- webview 消息量（长会话 1000+ 条）→ 分页/虚拟滚动；大 diff 拆分；索引后台化
+- 必须定义：首屏指标、长会话内存策略
+
+### D31 测试策略 ⏳
+- 单元（reducer/协议）/ 集成（扩展↔sidecar）/ webview 组件 / 端到端（无头 VSCode + vsix）
+- 推荐：保留 V1 的确定性 fixture 思路；新增 vscode-extension-tester 或轻量自建
+
+### D32 i18n 界面语言 ⏳
+- 中 / 英 / 跟随 VSCode locale？
+- 推荐：跟随 VSCode locale（zh/en 双语），Cursor 本身跟随系统
+
+### D33 升级与数据迁移 ⏳
+- 扩展版本升级 → 会话数据/配置 schema 迁移；dsh 版本升级 → 能力兼容探测
+- 卸载时是否清理 sidecar/数据？
+
+### D34 安全基线 ⏳
+- 凭据存储：VSCode SecretStorage（vs 文件）？token 只进 sidecar 内存？
+- webview CSP；loopback 端口随机 + token 认证；防凭据进入 agent 上下文
+- 推荐：SecretStorage 存凭据、运行时只注入 sidecar、webview 严格 CSP
+
+### D35 用量与成本 ⏳
+- token 消耗统计（每会话/累计）、模型用量面板？wps 计费可见性
+- 推荐：Chat 底部显示当前会话 token 估算；设置页总量统计
+
+### D36 会话数据格式 ⏳
+- 会话持久化 schema（版本号、增量追加、可迁移）；消息/工具调用/checkpoint 关联
+- 推荐：独立 JSON + schema 版本字段（D19 的细化）
+
+## 8. 待用户确认后填充
 （每一项确认后，把"⏳"改为"✅ 决定：…"，并记录日期）
