@@ -17,6 +17,7 @@ export {
   type CommandContribution,
   type ToolRendererContribution,
 } from './ext-host/manifest.ts';
+export { loadExtHost, type ExtHostRuntime, type LoadedRenderer, type LoadedCommand } from './ext-host/runtime.ts';
 export { buildTrajectory, groupBySource, type TrajectoryItem } from './trajectory/trajectory.ts';
 export { ParallelView, spawnParallel, type ParallelSessionSpec } from './sessions/parallel/ParallelView.tsx';
 export { bindClient, useCkpClient, useSession, useSessionList, useSessionState } from './hooks.ts';

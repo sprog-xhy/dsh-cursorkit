@@ -1,5 +1,5 @@
 /**
- * App shell: three-column layout (Sidebar | Main | Right Rail).
+ * App shell: three-column layout (Sidebar | Main | Right Rail) + CommandPalette.
  * doc GOAL §5 前端信息架构.
  *
  * @module @dsh-cursorkit/features/App
@@ -10,19 +10,22 @@ import type { CkpClient } from '@dsh-cursorkit/client';
 import { useSession, useSessionList } from './hooks.ts';
 import { ChatView } from './chat/ChatView.tsx';
 import { SessionsSidebar } from './sessions/SessionsSidebar.tsx';
-import { StatusBar } from '@dsh-cursorkit/ui-kit';
+import { CommandPalette, StatusBar } from '@dsh-cursorkit/ui-kit';
 import { TrajectoryPanel } from '@dsh-cursorkit/ui-kit';
 import { buildTrajectory } from './trajectory/trajectory.ts';
 import { ChangesPanel } from './changes/ChangesPanel.tsx';
 import { CheckpointsPanel } from './checkpoints/CheckpointsPanel.tsx';
+import { useCommandPalette } from './commands/command-palette.ts';
 
 export type RailTab = 'trajectory' | 'changes' | 'checkpoints';
 
 export interface AppProps {
   client: CkpClient;
+  /** Optional view switcher (e.g. settings/parallel) provided by the shell. */
+  onNavigate?: (view: string) => void;
 }
 
-export function App({ client }: AppProps) {
+export function App({ client, onNavigate }: AppProps) {
   const [activeSessionId, setActiveSessionId] = useState<string | undefined>();
   const [railTab, setRailTab] = useState<RailTab>('trajectory');
   const { sessions, loading } = useSessionList(client);
@@ -37,6 +40,16 @@ export function App({ client }: AppProps) {
     [client, effectiveSessionId],
   );
   void activeSession;
+
+  // Command palette (M3 T-043): Cmd+K, app actions + session search.
+  const palette = useCommandPalette(client, {
+    newSession: () => {
+      void client.sessionCreate('/tmp/demo').then((s) => setActiveSessionId(s.id));
+    },
+    openSettings: () => onNavigate?.('settings'),
+    openParallel: () => onNavigate?.('parallel'),
+    selectSession: setActiveSessionId,
+  });
 
   return (
     <div style={styles.shell}>
@@ -65,6 +78,12 @@ export function App({ client }: AppProps) {
         model={session.state?.meta?.model}
         tokenCount={undefined}
         elapsedMs={undefined}
+      />
+      <CommandPalette
+        open={palette.open}
+        onClose={() => palette.setOpen(false)}
+        commands={palette.commands}
+        sessions={palette.sessions}
       />
     </div>
   );

@@ -11,7 +11,7 @@ import { bootstrap } from './bootstrap.ts';
 
 function Shell({ client }: { client: CkpClient }) {
   const [view, setView] = useState<'chat' | 'settings' | 'parallel'>('chat');
-  const app = useMemo(() => <App client={client} />, [client]);
+  const app = useMemo(() => <App client={client} onNavigate={(v) => setView(v as 'chat' | 'settings' | 'parallel')} />, [client]);
   return (
     <>
       <div style={shellBar}>

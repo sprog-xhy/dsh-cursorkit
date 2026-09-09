@@ -33,6 +33,8 @@ export interface CommandContribution {
   id: string;
   title: string;
   keybinding?: string;
+  /** Optional ESM entry providing the command's run handler (M5 dynamic load). */
+  entry?: string;
 }
 
 export interface StatusContribution {
