@@ -54,6 +54,22 @@ cd apps/desktop && pnpm start      # Electron 壳（自动复用/拉起 sidecar�
 
 浏览器版：`cd apps/web && pnpm dev`（需 sidecar 与 `$DSH_HOME/.cursorkit/runtime.json`）。
 
+## 多平台打包与安装
+
+代码与 dsh 均跨平台（Electron 三平台；dsh sandbox 按平台选 runner：linux bwrap / mac seatbelt / win windows-acl；Keychain 走 safeStorage）。
+
+```bash
+cd apps/desktop && npm run dist
+```
+
+| 平台 | 产物 | 说明 |
+|---|---|---|
+| Linux | `release/*.AppImage`、`release/*.deb` | 已实测：AppImage 可执行（需 FUSE）、deb 安装到 /opt + .desktop |
+| Windows | `release/*.exe`（nsis） | 需在 Windows 或 CI 构建（cross-build 不支持） |
+| macOS | `release/*.dmg` | 需 macOS 或 CI；正式分发需签名/公证 |
+
+依赖：Node.js + `dsh`（`npx @deepseek-ai/dsh`）；sidecar 由应用自动复用/拉起。
+
 ## 集成验收 / 复现
 
 - 测试 profile 模板与复现指南：`scripts/profile-template/README.md`
