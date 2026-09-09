@@ -15,6 +15,7 @@ import type { CapabilityReport } from '../capability.ts';
 import type { EventBus } from './sse.ts';
 import type { SessionStoreView, AgentView, AgentRegistryView } from '../compat/sessions.ts';
 import { computeFileChanges } from '../diff/git-diff.ts';
+import { listCheckpoints, restoreCheckpoint } from '../checkpoint/git-checkpoint.ts';
 
 export interface RouterServices {
   sessions: SessionStoreView;
@@ -205,9 +206,38 @@ export class Router {
       enabled: true,
     }));
     this.register('mcp.remove', () => undefined);
-    this.register('checkpoint.list', () => []);
-    this.register('checkpoint.restore', () => {
-      throw new CkpError('CAPABILITY_MISSING', 'checkpoint.restore requires M2 plugins', ['checkpoint.restore']);
+    this.register('checkpoint.list', async (params) => {
+      const s = svc.sessions.get(params.sessionId);
+      const workspace = s?.header?.cwd;
+      if (workspace) {
+        return await listCheckpoints(workspace, params.sessionId);
+      }
+      return [];
+    });
+
+    this.register('checkpoint.restore', async (params) => {
+      // id format: <sessionId>-<n>; restore onto a new fork branch.
+      const [sessionId, n] = params.id.split('-');
+      const s = sessionId ? svc.sessions.get(sessionId) : undefined;
+      const workspace = s?.header?.cwd;
+      if (!workspace || !n) {
+        throw new CkpError('SESSION_NOT_FOUND', `checkpoint ${params.id} not found`);
+      }
+      const commitRef = `refs/cursorkit/${sessionId}/${n}`;
+      const branch = await restoreCheckpoint(workspace, commitRef);
+      if (!branch) throw new CkpError('SESSION_NOT_FOUND', `checkpoint ${params.id} not found`);
+      // Fork: create a child session from the current one (doc §M2-3).
+      if (typeof svc.sessions.fork === 'function' && sessionId) {
+        const forked = svc.sessions.fork(sessionId);
+        return {
+          id: forked.id,
+          workspace: forked.header?.cwd ?? workspace,
+          createdAt: forked.header?.createdAt ?? Date.now(),
+          updatedAt: Date.now(),
+          status: 'idle' as const,
+        };
+      }
+      throw new CkpError('CAPABILITY_MISSING', undefined, ['sessions.fork']);
     });
     this.register('worktree.list', () => []);
     this.register('worktree.create', (params) => ({
