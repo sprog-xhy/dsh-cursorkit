@@ -11,6 +11,7 @@ import { CkpService } from './ckp.ts';
 import { SidecarManager } from './sidecar.ts';
 import { buildInjectedContext } from './ide-bridge.ts';
 import { ChangeTracker, rejectChange, type FileChangeEvent } from './review.ts';
+import { loadRules, rulesToPrompt } from './rules.ts';
 
 export class ChatPanel {
   public static current: ChatPanel | null = null;
@@ -82,7 +83,9 @@ export class ChatPanel {
               message: `已自动附加选中文本（${ctx.selection.length} 字符）`,
             });
           }
-          await this.ckp.sendMessage(text, {
+          // Rules 注入（V2-DECISIONS D12）：.cursorrules / .cursor/rules / ~/.cursorrules
+          const rulesText = rulesToPrompt(loadRules(workspace));
+          await this.ckp.sendMessage(rulesText ? `${text}\n${rulesText}` : text, {
             mentions: ctx.mentions,
             mode: (msg.mode as 'ask' | 'edit' | 'agent') ?? 'agent',
           });
