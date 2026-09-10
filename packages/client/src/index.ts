@@ -110,6 +110,24 @@ export class CkpClient {
     return this.call('checkpoint.restore', { id: checkpointId });
   }
 
+  /**
+   * 读取会话历史（重启后恢复历史会话的关键）。
+   * host 会在必要时先 resume 持久化会话，再把日志翻译成 CKP 事件回放。
+   */
+  sessionHistory(
+    id: string,
+    limit?: number,
+  ): Promise<{
+    id: string;
+    events: CkpEvent[];
+    busSeq: number;
+    lastSeq: number;
+    resumed: boolean;
+    truncated: boolean;
+  }> {
+    return this.call('session.history', limit === undefined ? { id } : { id, limit });
+  }
+
   modelList(): Promise<ModelInfo[]> {
     return this.call('model.list', {});
   }

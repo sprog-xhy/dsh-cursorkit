@@ -110,8 +110,12 @@ export class ChatController {
         const id = String(msg.sessionId ?? '');
         if (!id) return;
         try {
-          await this.ckp.switchSession(id);
+          // 顺序很重要：先让前端清空，再回放历史（否则历史会被清掉）
           this.broadcast({ type: 'session.switched', sessionId: id });
+          const restored = await this.ckp.switchSession(id);
+          if (restored > 0) {
+            this.broadcast({ type: 'info', message: `已恢复 ${restored} 条历史事件` });
+          }
           this.onDidChangeSessions.fire();
         } catch (err) {
           this.broadcast({ type: 'error', message: `切换会话失败: ${(err as Error).message}` });

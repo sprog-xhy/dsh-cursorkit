@@ -187,7 +187,6 @@ export function startServer(deps: ServerDeps): Promise<ServerHandle> {
     if (req.method === 'GET' && eventsMatch) {
       const sessionId = decodeURIComponent(eventsMatch[1] ?? '');
       const from = Number(url.searchParams.get('from') ?? 0);
-      void sessionId;
       res.writeHead(200, {
         'content-type': 'text/event-stream; charset=utf-8',
         'cache-control': 'no-cache',
@@ -195,16 +194,27 @@ export function startServer(deps: ServerDeps): Promise<ServerHandle> {
         'x-accel-buffering': 'no',
         'access-control-allow-origin': '*',
       });
-      // Send initial replay window.
+      // 必须立即 flush 响应头：回放窗口为空时若什么都不写，
+      // 客户端（fetch/EventSource）会一直等不到响应，看起来像连不上。
+      res.flushHeaders?.();
+      // Send initial replay window（必须按会话过滤：环形缓冲是全局的，
+      // 不过滤会把其它会话的事件混进本会话的流里）。
       const replay = bus.replayFrom(from);
       if (replay === null) {
         // Ring buffer gap: tell the client to rebuild.
         sendSse(res, { event: 'gap', data: { fromSeq: from, lastSeq: bus.lastSeq } });
       } else {
-        for (const e of replay) sendSse(res, e);
+        for (const e of replay) {
+          if (e.sessionId === sessionId) sendSse(res, e);
+        }
       }
-      // Subscribe for live events.
-      const dispose = bus.subscribe({ onEvent: (e) => sendSse(res, e), onClose: () => res.end() });
+      // Subscribe for live events（同样按会话过滤）。
+      const dispose = bus.subscribe({
+        onEvent: (e) => {
+          if (e.sessionId === sessionId) sendSse(res, e);
+        },
+        onClose: () => res.end(),
+      });
       req.on('close', () => {
         dispose();
         res.end();

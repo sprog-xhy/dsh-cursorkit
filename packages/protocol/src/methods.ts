@@ -48,6 +48,8 @@ export interface MethodParams {
   'worktree.remove': { name: string };
   'diff.get': { sessionId?: string; checkpointId?: string };
   'context.get': { sessionId: string; files?: string[]; selection?: string; prompt?: string };
+  /** 读取会话历史（dsh 持久化的会话日志 → CKP 事件回放）。 */
+  'session.history': { id: string; limit?: number };
 }
 
 /** Per-method result types. */
@@ -77,6 +79,19 @@ export interface MethodResults {
   'worktree.create': { name: string; path: string; branch: string };
   'worktree.remove': void;
   'diff.get': FileChange[];
+  'session.history': {
+    id: string;
+    /** 回放后的事件（已按会话过滤、带递增 seq，可直接喂给前端渲染）。 */
+    events: import('./events.ts').CkpEvent[];
+    /** 当前 EventBus 游标：客户端应从该值之后订阅实时事件（避免重复）。 */
+    busSeq: number;
+    /** dsh 会话自身的序号。 */
+    lastSeq: number;
+    /** 本次是否触发了会话恢复（agents.resume）。 */
+    resumed: boolean;
+    /** 是否因 limit 截断了更早的事件。 */
+    truncated: boolean;
+  };
   'context.get': {
     sessionId: string;
     /** 注入的文件路径列表（VSCode 相对 workspace 或绝对路径）。 */
@@ -126,6 +141,8 @@ export const CKP_METHODS: readonly CkpMethodName[] = [
   'worktree.create',
   'worktree.remove',
   'diff.get',
+  'context.get',
+  'session.history',
 ];
 
 /** Whether a method name is a known CKP method. */

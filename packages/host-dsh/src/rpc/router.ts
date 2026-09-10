@@ -17,6 +17,7 @@ import type { ApprovalBridge } from '../bridge/approval-bridge.ts';
 import type { CapabilityReport } from '../capability.ts';
 import type { EventBus } from './sse.ts';
 import type { SessionStoreView, AgentView, AgentRegistryView } from '../compat/sessions.ts';
+import { translateRawEvent, type RawSessionEvent } from '../bridge/session-bridge.ts';
 import { computeFileChanges } from '../diff/git-diff.ts';
 import { listCheckpoints, restoreCheckpoint } from '../checkpoint/git-checkpoint.ts';
 import { listWorktrees, createWorktree, removeWorktree } from '../worktree/git-worktree.ts';
@@ -191,6 +192,55 @@ export class Router {
         };
       }
       throw new CkpError('SESSION_NOT_FOUND', `session ${params.id} not found`);
+    });
+
+    /**
+     * 会话历史回放（修复：dsh 重启后历史会话读不回来）。
+     *
+     * 流程：非活跃会话先用 `agents.resume` 从持久化载入 → 读 `session.events`（完整日志）
+     * → 用 bridge 的 translateRawEvent 翻译成 CKP 事件 → 返回给客户端渲染。
+     * 同时返回 EventBus 游标 busSeq，客户端据此订阅实时事件（不重复）。
+     */
+    this.register('session.history', async (params) => {
+      const busSeq = svc.bus.lastSeq;
+      let s = svc.sessions.get(params.id);
+      let resumed = false;
+      if (!s) {
+        await restoreForSend(svc, params.id);
+        s = svc.sessions.get(params.id);
+        resumed = true;
+      }
+      if (!s) throw new CkpError('SESSION_NOT_FOUND', `session ${params.id} not found`);
+
+      const raw = (s.events ?? []) as RawSessionEvent[];
+      const limit = Math.max(1, params.limit ?? 2000);
+      const from = raw.length > limit ? raw.length - limit : 0;
+      const slice = raw.slice(from);
+
+      const events: import('@dsh-cursorkit/protocol').CkpEvent[] = [];
+      let seq = 0;
+      for (const r of slice) {
+        let translated: ReturnType<typeof translateRawEvent> = null;
+        try {
+          translated = translateRawEvent(params.id, r);
+        } catch {
+          translated = null;
+        }
+        if (!translated) continue;
+        events.push({
+          ...(translated as Record<string, unknown>),
+          seq: ++seq,
+          ts: typeof r.time === 'number' ? r.time : Date.now(),
+        } as import('@dsh-cursorkit/protocol').CkpEvent);
+      }
+      return {
+        id: params.id,
+        events,
+        busSeq,
+        lastSeq: s.seq ?? 0,
+        resumed,
+        truncated: from > 0,
+      };
     });
 
     this.register('session.fork', (params) => {

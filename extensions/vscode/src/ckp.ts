@@ -200,21 +200,41 @@ export class CkpService {
     return this.client.modelList();
   }
 
-  async switchSession(id: string): Promise<void> {
-    if (!this.client) return;
-    let fromSeq = 0;
+  /**
+   * 切换到指定会话（含历史恢复）。
+   *
+   * 修复：重启后历史会话读不回来 —— 现在先取 `session.history`
+   * （host 会按需 resume 持久化会话并翻译日志），把历史事件派发给前端渲染，
+   * 再从 host 返回的 `busSeq` 订阅实时事件（不重复、也不漏）。
+   *
+   * @returns 恢复的历史事件数
+   */
+  async switchSession(id: string): Promise<number> {
+    if (!this.client) return 0;
     let model: string | null = null;
     try {
       const detail = await this.client.sessionGet(id);
-      fromSeq = detail.lastSeq ?? 0;
-      // 协议 Session.model 现在由 host 回读（内存记录），可用则精确跟踪
       model = (detail as { model?: string }).model ?? null;
     } catch {
-      /* 退化：从头回放 + 模型未知 */
+      /* 会话可能不存在：下面 history 会再报错 */
     }
     this.activeSessionId = id;
     this.activeSessionModel = model;
-    this.attachEvents(id, fromSeq);
+
+    let restored = 0;
+    try {
+      const hist = await this.client.sessionHistory(id);
+      for (const evt of hist.events) {
+        // 只派发给常规监听（前端渲染）；不喂给"一次性等待"（Ctrl+K/补全）
+        this.dispatch(evt);
+      }
+      restored = hist.events.length;
+      this.attachEvents(id, hist.busSeq);
+    } catch {
+      // 历史不可得（例如会话不存在）→ 退化为从头订阅
+      this.attachEvents(id, 0);
+    }
+    return restored;
   }
 
   async getSessionDetail(id: string) {

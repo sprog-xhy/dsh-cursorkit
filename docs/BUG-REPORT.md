@@ -2,8 +2,9 @@
 
 > 排查日期：2026-09-10 ｜ 范围：`extensions/vscode/src`（扩展进程）、`extensions/vscode/webview/src`（React 面板）、
 > `packages/host-dsh`（dsh 插件侧回归确认）
-> 结论：**发现并修复 22 个实质缺陷**（其中 7 个「功能完全失效」级），另完成 15 项 UI 优化。
-> 第二轮复核：确认前 20 项修复全部真实落地，并继续修掉了 3 项「遗留项」+ 2 个新发现的 P0。
+> 结论：**发现并修复 26 个实质缺陷**（其中 10 个「功能完全失效」级），另完成 15 项 UI 优化。
+> 第二轮复核：确认前 20 项修复全部真实落地；
+> 第三轮（历史会话必须可恢复）：修掉 3 项遗留 + 4 个新发现的 P0（含 SSE 会话串流）。
 > 全部修复已提交（`2f837e4` 及其前后提交），扩展测试 41 项 / 内核测试 74 项全绿。
 
 ## 一、功能失效级（P0）
@@ -27,6 +28,11 @@
 
 | 21 | `sidecar.ensureProfile` **从不安装 profile 依赖**；且 pnpm 的 `file:` 依赖是**快照**，host-dsh 源码/构建更新后 profile 内副本不会刷新 | 全新环境：sidecar 永远起不来（运行时才报 `Cannot find module .../host-dsh/lib/...`）；更新后：启动直接失败 | 新增 `syncProfileDeps`（源码指纹 + 时间戳判定，pnpm→npm 回退，装完写 stamp），扩展与验证脚本共用；**冷启动集成测试证明零手工步骤可启动** |
 | 22 | dsh 重启后**不把持久化会话载入内存**，而 host 侧没有任何会话索引 | `session.get` 报 SESSION_NOT_FOUND、`session.list` 为空 → 用户视角「重启后历史会话全部消失，也无法继续」 | 新增落盘的 `SessionIndex`（id → model/workspace/createdAt）：`list` 合并历史、`get` 回退索引、`send` 先 `agents.resume` 再发送；**实测重启后仍可列出并回读会话** |
+
+| 23 | SSE 端点**既不过滤回放窗口、也不过滤实时事件**（源码留着 `void sessionId;` 占位） | 多会话并行时事件互相串流：会话 A 的流里混进 B 的消息（前端消息串台）；订阅 A 会收到其它会话的全部历史 | 回放与实时都按 `sessionId` 过滤；新增 2 项 SSE 隔离回归测试（node:http 原生客户端读流） |
+| 24 | SSE 回放窗口为空时**不 flush 响应头** | 切到尚无事件的新会话时，客户端 `fetch()` 永不 resolve（连接看似死掉，重连逻辑也不触发） | `res.writeHead(...)` 后立即 `res.flushHeaders()` |
+| 25 | 方法注册表遗漏：`CKP_METHODS`（运行时常量表）未收录 `context.get`，新增方法也容易忘登记 | 调用得到 `unknown method`——`context.get` 自加入起就一直是死方法 | 补齐 `CKP_METHODS` 与 `schema/methods.schema.json`；新增"方法表一致性"测试（从 router 源码抽取 register('x') 双向校验） |
+| 26 | profile 依赖指纹**只覆盖 host-dsh**，未覆盖同为 file: 依赖的 protocol 包 | protocol 变更后 profile 内副本过期 → 新方法报 `unknown method`（实测踩到） | 指纹合并两个包，任一变化即重装 |
 
 ## 二、功能缺陷级（P1）
 
@@ -70,7 +76,7 @@
 
 ## 五、回归防线
 
-**测试总数：168 项全绿**（protocol 11 / client 14 / host-dsh 48 / fixtures 6 / 扩展 89）
+**测试总数：231 项全绿**（protocol 11 / client 14 / host-dsh 82 / fixtures 6 / 扩展 118）
 
 - host-dsh 48：新增 `model-ref`（5，覆盖 P0 级模型解析缺陷）
 - 扩展 77：
@@ -105,17 +111,24 @@
 - **空文本分片仍被广播**成 `message.delta`（无意义事件、可能生成空 assistant 块）→ 现在返回 null
 - **reasoning 分片没有走 thinking 事件** → 按 dsh 真实分片类型 `reasoning-delta` 正确分流
 
-## 六之二、本轮新发现、尚未修复（需协议扩展，建议下轮做）
+## 六之二、历史会话恢复（第三轮已实现，见 ADR-002）
 
-- **历史会话的消息内容不会回放**：会话索引让历史会话可列出/可继续，但 `session.get` 只返回
-  `lastSeq`，CKP 没有"读取持久化历史"的方法；切到历史会话时消息区为空（发送后恢复正常）。
-  建议：新增 `session.history`（host 侧读 `$DSH_HOME/sessions/**/session.jsonl.zstd` 或复用 dsh 投影），
-  属协议扩展，按约定需走 ADR。
+**用户要求：历史会话必须能够恢复** —— 已完整实现并端到端验证：
+
+- 新增 CKP 方法 **`session.history`**：非活跃会话先 `agents.resume()` 从持久化载入 →
+  读 `session.events` 完整日志 → 用既有 bridge 翻译成 CKP 事件 → 返回
+  `{ events, busSeq, lastSeq, resumed, truncated }`
+- 前端**复用同一渲染路径**：历史事件走与实时事件相同的 `handleEvent`（user/delta/tool/thinking
+  全部照常渲染），切换会话时先清空再从 `busSeq` 订阅实时事件（不重复、不漏）
+- 落盘 `session-index.json` 让历史会话在重启后仍可列出（`list`）与回读（`get`）
+- **实测**（`scripts/verify-history.mjs`）：建会话 → 发消息 → 重启 sidecar →
+  `session.history` 返回 **31 个事件**（含用户消息与助手回复「收到」）→ 恢复后可继续对话 ✅
+- 协议扩展已按约定记录在 [`docs/ADR/ADR-002-session-history-restore.md`](ADR/ADR-002-session-history-restore.md)
 
 ## 七、验证证据（可复现）
 
 ```bash
-# 1. 全量类型检查 + 测试（168 项）
+# 1. 全量类型检查 + 测试（231 项）
 pnpm -r typecheck && pnpm -r test:run
 cd extensions/vscode && pnpm vitest run test/
 
@@ -125,10 +138,13 @@ cd extensions/vscode && node esbuild.mjs && cd webview && pnpm build
 # 3. CSS 类名交叉检查（抓"用了但没样式"）
 node scripts/check-css-classes.mjs
 
-# 4. 真实 sidecar 协议层验证（6 项假设）
+# 4. 真实 sidecar 协议层验证（9 项）
 node scripts/verify-bugfixes.mjs
 
-# 5. 全新 profile 冷启动验证（P0-17 的复现/回归手段）
+# 5. 历史会话恢复验证（建会话 → 发消息 → 重启 sidecar → 恢复历史）
+node scripts/verify-history.mjs
+
+# 6. 全新 profile 冷启动验证（P0-17/21 的复现/回归手段）
 #    （脚本化步骤见 commit 5f6116e 描述：新 DSH_HOME → 生成 profile → 启动 → 会话链路）
 node scripts/verify-m0.mjs "说一句你好"
 ```

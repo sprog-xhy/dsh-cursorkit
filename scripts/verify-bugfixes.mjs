@@ -54,6 +54,7 @@ async function syncDeps() {
   const res = await mod.syncProfileDeps({
     dir,
     hostDir: join(repo, 'packages', 'host-dsh'),
+    protocolDir: join(repo, 'packages', 'protocol'),
     log: (m) => log(`[deps] ${m}`),
   });
   if (res.installed) ok('profile 依赖已同步安装（此前缺失或源码已更新）');

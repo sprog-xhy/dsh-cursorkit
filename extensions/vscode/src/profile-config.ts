@@ -137,34 +137,43 @@ export function installCommand(): { bin: string; args: string[] } {
   return { bin: 'pnpm', args: ['install', '--prefer-offline', '--no-frozen-lockfile'] };
 }
 
-/** 计算 host-dsh 源码/构建产物指纹（package.json + cordis.patch.yml + lib/*.js）。 */
-export async function computeHostFingerprint(hostDir: string): Promise<string> {
+/**
+ * 计算单个包的源码/构建产物指纹（package.json + cordis.patch.yml + lib/*.js）。
+ * 注意：profile 依赖**两个** workspace 包（host-dsh 与 protocol），
+ * 任一变化都必须触发重装 —— 只跟踪 host-dsh 会导致 protocol 过期（实测踩过：
+ * 新增方法后 sidecar 报 unknown method）。
+ */
+export async function computePackageFingerprint(pkgDir: string, label: string): Promise<string> {
   const entries: { name: string; size: number; mtimeMs: number }[] = [];
   const push = async (p: string, name: string): Promise<void> => {
     try {
       const st = await stat(p);
-      entries.push({ name, size: st.size, mtimeMs: st.mtimeMs });
+      entries.push({ name: `${label}/${name}`, size: st.size, mtimeMs: st.mtimeMs });
     } catch {
       /* 不存在则跳过 */
     }
   };
-  await push(join(hostDir, 'package.json'), 'package.json');
-  await push(join(hostDir, PATCH_FILENAME), PATCH_FILENAME);
+  await push(join(pkgDir, 'package.json'), 'package.json');
+  await push(join(pkgDir, PATCH_FILENAME), PATCH_FILENAME);
   try {
-    for (const f of await readdir(join(hostDir, 'lib'))) {
-      if (f.endsWith('.js')) await push(join(hostDir, 'lib', f), `lib/${f}`);
+    for (const f of await readdir(join(pkgDir, 'lib'))) {
+      if (f.endsWith('.js')) await push(join(pkgDir, 'lib', f), `lib/${f}`);
     }
   } catch {
     /* 未构建：仅 package.json 参与 */
   }
-  if (entries.length === 0) throw new Error(`host-dsh 目录不可读：${hostDir}`);
+  if (entries.length === 0) throw new Error(`包目录不可读：${pkgDir}`);
   return fingerprintOf(entries);
 }
+
+/** 兼容旧名（只算一个包）。 */
+export const computeHostFingerprint = (hostDir: string): Promise<string> =>
+  computePackageFingerprint(hostDir, 'host-dsh');
 
 export interface SyncProfileDepsResult {
   /** 是否执行了安装。 */
   installed: boolean;
-  /** 指纹。 */
+  /** 指纹（host-dsh + protocol 合并）。 */
   fingerprint: string;
 }
 
@@ -178,13 +187,19 @@ export interface SyncProfileDepsResult {
 export async function syncProfileDeps(opts: {
   dir: string;
   hostDir: string;
+  /** protocol 包目录（同样是 profile 的 file: 依赖，必须一起跟踪）。 */
+  protocolDir?: string;
   log?: (msg: string) => void;
   timeoutMs?: number;
 }): Promise<SyncProfileDepsResult> {
-  const { dir, hostDir, log = () => undefined, timeoutMs = 180_000 } = opts;
+  const { dir, hostDir, protocolDir, log = () => undefined, timeoutMs = 180_000 } = opts;
   const installedPkg = join(dir, INSTALLED_HOST_REL);
   const stampFile = join(dir, INSTALL_STAMP);
-  const fingerprint = await computeHostFingerprint(hostDir);
+  const hostFp = await computePackageFingerprint(hostDir, 'host-dsh');
+  const protocolFp = protocolDir
+    ? await computePackageFingerprint(protocolDir, 'protocol')
+    : '';
+  const fingerprint = `${hostFp}:${protocolFp}`;
   let stamp: string | null = null;
   try {
     stamp = readFileSync(stampFile, 'utf8').trim();

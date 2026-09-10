@@ -213,6 +213,7 @@ export class SidecarManager implements vscode.Disposable {
       const res = await syncProfileDeps({
         dir,
         hostDir: join(repoRoot(), 'packages', 'host-dsh'),
+        protocolDir: join(repoRoot(), 'packages', 'protocol'),
         log: (m) => this.log(m),
       });
       this.log(res.installed ? 'profile deps installed' : 'profile deps ok');

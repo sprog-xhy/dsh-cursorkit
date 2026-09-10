@@ -30,6 +30,7 @@ VSCode (host)
 | Tab 补全（ghost text，Tab 接受） | ✅ |
 | Ctrl+K 行内编辑（选中 → 指令 → 生成 → 内联应用） | ✅ |
 | Checkpoint 时间线（自动打点 + 一键回滚） | ✅ |
+| **历史会话恢复**（重启后仍可列出/回读/继续，`session.history`） | ✅ |
 | Rules（.cursorrules / .cursor/rules/*.mdc / ~/.cursorrules） | ✅ |
 | 模型选择器（真实读取 settings.yaml provider×model） | ✅ |
 | Settings 面板（Rules 查看 / Tab 开关 / 权限模式） | ✅ |
@@ -102,12 +103,13 @@ pnpm -r test:run  # 全量测试
 node scripts/verify-m0.mjs        # 全链路: spawn→runtime→session→send→流式事件
 node scripts/verify-m3.mjs        # model.list 真实 settings + 会话
 node scripts/verify-bugfixes.mjs  # 依赖同步/会话索引/重启后历史可用/diff 来源 等 9 项
+node scripts/verify-history.mjs   # 历史会话恢复（建会话→发消息→重启 sidecar→回放历史）
 node scripts/check-css-classes.mjs # CSS 类名交叉检查
 ```
 
 ## 测试
 
-**214 项全绿**：protocol 11 / client 14 / host-dsh 70 / fixtures 6 / 扩展 113
+**231 项全绿**：protocol 11 / client 14 / host-dsh 82 / fixtures 6 / 扩展 118
 （含真实 sidecar 冷启动集成测试与组件渲染测试；`CK_SKIP_INTEGRATION=1` 可跳过需要 dsh 的用例）。
 
 ## 安全
