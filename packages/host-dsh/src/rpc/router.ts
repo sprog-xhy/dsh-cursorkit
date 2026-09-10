@@ -177,7 +177,8 @@ export class Router {
       const modeHint: Record<'ask' | 'edit' | 'agent', string> = {
         ask: '\n\n[模式: Ask] 只回答问题或解释代码，不要修改任何文件，不要调用写文件工具。',
         edit: '\n\n[模式: Edit] 专注修改用户指出的内容。先说明要改什么，改动要最小化、精确。',
-        agent: '',
+        agent:
+          '\n\n[模式: Agent/Composer] 这是多文件任务。开始前先输出简明计划：用编号列表列出要改动的文件与每处改动要点；然后逐项执行，每完成一个文件等待工具结果。',
       };
       let text = `${params.text}${modeHint[mode]}`;
       const mentions = params.mentions ?? [];

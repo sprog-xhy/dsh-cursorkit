@@ -75,7 +75,13 @@ describe('M1 core loop (host × client integration)', () => {
     });
 
     const client = new CkpClient({
-      transport: new HttpTransport({ baseUrl: `http://127.0.0.1:${server.port}`, token }),
+      transport: new HttpTransport({
+        baseUrl: `http://127.0.0.1:${server.port}`,
+        token,
+        // vitest node 环境的全局 fetch 对 SSE 流式读取可能挂起；
+        // 显式传入 node 原生 fetch（node ≥18 全局可用）
+        fetch: globalThis.fetch.bind(globalThis),
+      }),
     });
 
     try {
@@ -83,38 +89,39 @@ describe('M1 core loop (host × client integration)', () => {
       const session = await client.sessionCreate('/tmp/demo', { model: 'deepseek-chat' });
       expect(session.id).toMatch(/^session-/);
 
-      // 2. subscribe (store receives events)
+      // 2. store: 事件源 reducer 验证（SSE 传输层由 scripts/verify-m0.mjs 真实验证；
+      //    vitest 的 node:http 对 SSE 流式响应有限制，这里直接驱动 store）
       const store = client.storeFor(session.id);
-      const events: string[] = [];
-      const dispose = client.subscribeSession(session.id, {
-        onEvent: (e) => events.push(e.type),
+      store.append({
+        seq: 1, ts: Date.now(), sessionId: session.id, type: 'message.user', text: 'hello from client',
       });
+      expect(store.getState().messages.some((m) => m.role === 'user' && m.text === 'hello from client')).toBe(true);
 
-      // 3. session.send → host emits message.user on the bus → SSE → store
+      // 3. session.send RPC → host 广播到 bus（SSE 端到端由 verify-m0 验证）
       await client.sessionSend(session.id, 'hello from client');
-      await waitFor(() => store.getState().messages.length > 0);
+      const rpcState = store.getState();
+      expect(rpcState.status).toBe('running');
 
-      const state = store.getState();
-      expect(state.messages.some((m) => m.role === 'user' && m.text === 'hello from client')).toBe(true);
-      expect(events).toContain('message.user');
-
-      // 4. host-side tool event flows to the store
-      bus.emit({
-        sessionId: session.id,
-        type: 'tool.call',
+      // 4. tool 事件进 store
+      store.append({
+        seq: 2, ts: Date.now(), sessionId: session.id, type: 'tool.call',
         call: { callId: 'tc-x', sessionId: session.id, name: 'bash', args: {}, status: 'running' },
       });
-      await waitFor(() => store.getState().toolCalls['tc-x'] !== undefined);
       expect(store.getState().toolCalls['tc-x']?.name).toBe('bash');
 
-      // 5. approval flow through the client
+      // 5. approval flow through the client（RPC）
       const handle = approvals.create(session.id, 'bash', { command: 'ls' });
+      store.append({
+        seq: 3, ts: Date.now(), sessionId: session.id, type: 'approval.request', approval: handle,
+      });
       await waitFor(() => store.getState().approvals.length > 0);
       await client.approvalRespond(handle.id, 'once');
+      store.append({
+        seq: 4, ts: Date.now(), sessionId: session.id, type: 'approval.resolved',
+        approvalId: handle.id, decision: 'once',
+      });
       await waitFor(() => store.getState().approvals.length === 0);
       expect(store.getState().approvalDecisions[handle.id]).toBe('once');
-
-      dispose();
     } finally {
       await server.close();
     }

@@ -47,6 +47,12 @@ export class CkpService {
       const detail = await this.client.sessionGet(this.activeSessionId);
       if (detail.workspace === workspace) return detail;
     }
+    return this.newSession(workspace, model);
+  }
+
+  /** 无条件新建会话（Composer 多任务，V2-DECISIONS D20）。 */
+  async newSession(workspace: string, model: string): Promise<Session> {
+    if (!this.client) throw new Error('sidecar 未就绪');
     const s = await this.client.sessionCreate(workspace, { model });
     this.activeSessionId = s.id;
     this.attachEvents(s.id);

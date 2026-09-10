@@ -50,6 +50,14 @@ interface CheckpointListMsg {
     reversible: boolean;
   }[];
 }
+interface SessionListMsg {
+  type: 'session.list';
+  sessions: { id: string; workspace: string; status: string }[];
+}
+interface SessionSwitchedMsg {
+  type: 'session.switched';
+  sessionId: string;
+}
 type Inbound =
   | SidecarStatusMsg
   | InitMsg
@@ -58,7 +66,9 @@ type Inbound =
   | InfoMsg
   | ReviewListMsg
   | CheckpointOpenMsg
-  | CheckpointListMsg;
+  | CheckpointListMsg
+  | SessionListMsg
+  | SessionSwitchedMsg;
 
 // --- 消息渲染模型 ---
 interface ChatItem {
@@ -97,6 +107,9 @@ function App(): JSX.Element {
   const [checkpoints, setCheckpoints] = useState<CheckpointInfo[]>([]);
   const [showCheckpoints, setShowCheckpoints] = useState(false);
   const [mode, setMode] = useState<'ask' | 'edit' | 'agent'>('agent');
+  const [sessions, setSessions] = useState<{ id: string; workspace: string }[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState('');
+  const [showSessions, setShowSessions] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -133,6 +146,14 @@ function App(): JSX.Element {
           break;
         case 'checkpoint.list':
           setCheckpoints(msg.checkpoints);
+          break;
+        case 'session.list':
+          setSessions(msg.sessions);
+          break;
+        case 'session.switched':
+          setActiveSessionId(msg.sessionId);
+          // 切换会话后重新拉 checkpoint 列表
+          post({ type: 'checkpoint.list', sessionId: msg.sessionId });
           break;
       }
     };
@@ -252,6 +273,25 @@ function App(): JSX.Element {
         <button
           className="btn-review"
           onClick={() => {
+            setShowSessions((v) => !v);
+            post({ type: 'session.list' });
+          }}
+          title="会话列表 / 新建"
+        >
+          {activeSessionId ? activeSessionId.slice(0, 8) : '会话'}
+        </button>
+        <button
+          className="btn-review"
+          onClick={() => {
+            post({ type: 'newSession' });
+          }}
+          title="新建会话（Composer 新任务）"
+        >
+          + 新建
+        </button>
+        <button
+          className="btn-review"
+          onClick={() => {
             setShowReview((v) => !v);
             if (!showReview) post({ type: 'review.list' });
           }}
@@ -262,6 +302,23 @@ function App(): JSX.Element {
         <span className="model">{model}</span>
         <span className="sidecar">{sidecarInfo}</span>
       </header>
+
+      {showSessions && (
+        <div className="review-panel">
+          <div className="review-title">会话（点击切换；+ 新建用于 Composer 并行任务）</div>
+          {sessions.length === 0 && <div className="review-empty">暂无会话</div>}
+          {sessions.map((s) => (
+            <div key={s.id} className="review-item">
+              <span className="review-path">
+                {s.id.slice(0, 12)}
+                {s.id === activeSessionId ? ' ●' : ''}
+              </span>
+              <span className="review-stat">{s.workspace.split('/').pop()}</span>
+              <button onClick={() => post({ type: 'session.switch', sessionId: s.id })}>切换</button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {showReview && (
         <div className="review-panel">
@@ -310,7 +367,11 @@ function App(): JSX.Element {
                 {it.status === 'running' ? '◔' : it.status === 'failed' ? '✕' : '✓'}
               </span>
             )}
-            <div className="item-text">{it.text}</div>
+            {it.role === 'assistant' ? (
+              <div className="item-text" dangerouslySetInnerHTML={{ __html: renderMd(it.text) }} />
+            ) : (
+              <div className="item-text">{it.text}</div>
+            )}
           </div>
         ))}
       </div>
@@ -372,6 +433,55 @@ const vscodeApi = acquireVsCodeApi();
 
 function post(msg: unknown): void {
   vscodeApi.postMessage(msg);
+}
+
+/** 轻量 markdown 渲染：转义 HTML，支持代码块/粗体/行内代码/列表（M2 Composer 计划）。 */
+function renderMd(src: string): string {
+  const esc = (s: string): string =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  // 代码块 → <pre>
+  let out = '';
+  const lines = src.split('\n');
+  let inCode = false;
+  let codeLines: string[] = [];
+  const flushCode = () => {
+    if (codeLines.length > 0) {
+      out += `<pre>${esc(codeLines.join('\n'))}</pre>`;
+      codeLines = [];
+    }
+  };
+  for (const line of lines) {
+    if (line.trim().startsWith('```')) {
+      if (inCode) {
+        inCode = false;
+        flushCode();
+      } else {
+        inCode = true;
+      }
+      continue;
+    }
+    if (inCode) {
+      codeLines.push(line);
+      continue;
+    }
+    let l = esc(line);
+    // 列表项
+    if (/^\s*[-*•]\s+/.test(l)) {
+      out += `<div class="md-li">${l.replace(/^\s*[-*•]\s+/, '')}</div>`;
+      continue;
+    }
+    if (/^\s*\d+\.\s+/.test(l)) {
+      out += `<div class="md-li">${l.replace(/^\s*\d+\.\s+/, '')}</div>`;
+      continue;
+    }
+    // 粗体
+    l = l.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+    // 行内代码
+    l = l.replace(/`([^`]+)`/g, '<code>$1</code>');
+    if (l.trim()) out += `<div class="md-line">${l}</div>`;
+  }
+  flushCode();
+  return out;
 }
 
 createRoot(document.getElementById('root')!).render(<App />);

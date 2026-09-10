@@ -176,3 +176,28 @@ body {
   color: var(--accent-fg);
   border-color: var(--accent);
 }
+
+/* Markdown 渲染（M2 Composer 计划） */
+.md-line { margin: 1px 0; }
+.md-li { margin: 2px 0 2px 12px; position: relative; }
+.md-li::before { content: '•'; position: absolute; left: -12px; color: var(--accent); }
+.md-line b, .md-li b { color: var(--fg); }
+.md-line code, .md-li code {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 3px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+}
+.item-assistant pre {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  overflow-x: auto;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  line-height: 1.4;
+  margin: 4px 0;
+}

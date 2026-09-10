@@ -93,11 +93,34 @@ export class ChatPanel {
       case 'stop':
         await this.ckp.cancel().catch(() => undefined);
         return;
-      case 'newSession':
-        // 强制新会话：切换到一个新 session
-        await this.ckp.listSessions().catch(() => []);
-        void this.post({ type: 'info', message: '新建会话：请使用会话列表或重启扩展（M1 完善）' });
+      case 'newSession': {
+        try {
+          const workspace = this.currentWorkspace();
+          const session = await this.ckp.newSession(workspace, this.defaultModel());
+          void this.post({ type: 'session.switched', sessionId: session.id });
+          void this.post({ type: 'info', message: `新建会话 ${session.id.slice(0, 8)}` });
+        } catch (err) {
+          void this.post({ type: 'error', message: `新建会话失败: ${(err as Error).message}` });
+        }
         return;
+      }
+      case 'session.switch': {
+        const id = String(msg.sessionId ?? '');
+        if (id) {
+          await this.ckp.switchSession(id);
+          void this.post({ type: 'session.switched', sessionId: id });
+        }
+        return;
+      }
+      case 'session.list': {
+        try {
+          const sessions = await this.ckp.listSessions();
+          void this.post({ type: 'session.list', sessions });
+        } catch (err) {
+          void this.post({ type: 'error', message: `会话列表读取失败: ${(err as Error).message}` });
+        }
+        return;
+      }
       case 'review.list': {
         const changes = this.tracker.list();
         void this.post({ type: 'review.list', changes });
