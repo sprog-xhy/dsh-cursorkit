@@ -2,7 +2,7 @@
 
 > 排查日期：2026-09-10 ｜ 范围：`extensions/vscode/src`（扩展进程）、`extensions/vscode/webview/src`（React 面板）、
 > `packages/host-dsh`（dsh 插件侧回归确认）
-> 结论：**发现并修复 18 个实质缺陷**（其中 4 个「功能完全失效」级），另完成 12 项 UI 优化。
+> 结论：**发现并修复 20 个实质缺陷**（其中 5 个「功能完全失效」级），另完成 15 项 UI 优化。
 > 全部修复已提交（`2f837e4` 及其前后提交），扩展测试 41 项 / 内核测试 74 项全绿。
 
 ## 一、功能失效级（P0）
@@ -16,6 +16,13 @@
 
 | 17 | `sidecar.ensureProfile` 生成的 profile patch **恰好写错**：`insert agent-loop`（dsh-base 已内置该 id → `duplicate loader entry id`，sidecar 直接启动失败）且**缺少必需的 `cursorkit-host`**（实测包内自带 patch 不会被自动加载 → runtime.json 永不出现） | 只在"已手工写好 profile"的机器上侥幸可用；换机器/新建 profile 时**完全无法启动** | 抽出纯模块 `profile-config.ts` 统一生成（insert cursorkit-host + agent-loop 顶层覆盖），并对已有 patch 做体检（`profilePatchNeedsRepair`）自动修复；**在全新 DSH_HOME 上实测启动成功并跑通完整链路** |
 | 18 | `sidecar.spawn` 启动超时/失败时不回收已拉起的进程 | 失败后残留孤儿 dsh 进程，下次启动看到半死实例 | `waitForRuntime` 失败即 `killProc('startup-failed')` |
+
+## 一之二、展示正确性（P2，用户可见的"错误信息"）
+
+| # | 缺陷 | 影响 | 修复 |
+|---|---|---|---|
+| 19 | 审查面板无条件显示 `+N/-0`（host 的 deletions 恒为 0，因为增删行数是从工具输出估算的） | 每个改动都显示"-0"，用户以为是真实 diff 统计 | 未知时显示 `—`，仅在 >0 时显示对应项，并加 tooltip「估算，以 diff 为准」 |
+| 20 | `client` 的 `SubscribeOptions.fromSeq` 注释写 "inclusive"，而服务端 `replayFrom` 是**排他**边界 | 后续按注释改动会导致重连时事件重复（消息重复） | 注释纠正为排他语义；实测重连使用 `lastSeq` 不会重复 |
 
 ## 二、功能缺陷级（P1）
 
@@ -59,7 +66,7 @@
 
 ## 五、回归防线
 
-**测试总数：166 项全绿**（protocol 11 / client 14 / host-dsh 48 / fixtures 6 / 扩展 87）
+**测试总数：168 项全绿**（protocol 11 / client 14 / host-dsh 48 / fixtures 6 / 扩展 89）
 
 - host-dsh 48：新增 `model-ref`（5，覆盖 P0 级模型解析缺陷）
 - 扩展 77：
@@ -91,3 +98,31 @@
    长思考过程无法分段；如需分段需协议侧给 turn/step 边界。
 3. **tool 事件与文本的时序**：agent 在同一轮里「文本 → 工具 → 文本」会形成两个 assistant 块
    （符合 Cursor 的分段观感），若希望合并成单块需协议提供 turn 分组信息。
+
+## 七、验证证据（可复现）
+
+```bash
+# 1. 全量类型检查 + 测试（168 项）
+pnpm -r typecheck && pnpm -r test:run
+cd extensions/vscode && pnpm vitest run test/
+
+# 2. 构建
+cd extensions/vscode && node esbuild.mjs && cd webview && pnpm build
+
+# 3. CSS 类名交叉检查（抓"用了但没样式"）
+node scripts/check-css-classes.mjs
+
+# 4. 真实 sidecar 协议层验证（6 项假设）
+node scripts/verify-bugfixes.mjs
+
+# 5. 全新 profile 冷启动验证（P0-17 的复现/回归手段）
+#    （脚本化步骤见 commit 5f6116e 描述：新 DSH_HOME → 生成 profile → 启动 → 会话链路）
+node scripts/verify-m0.mjs "说一句你好"
+```
+
+关键实测结论：
+- 全新 DSH_HOME 上用修正后的生成逻辑创建 profile → **sidecar 启动成功** → `verify-m0` 全链路通过
+  （旧逻辑在此场景会因 `duplicate loader entry id: agent-loop` 直接失败）
+- `session.get` 现返回 `model`（`wps/moonshot/kimi-k2.7-code`）、`lastSeq`
+- `model.list` 16 项均带 provider（证明 P0-3 的修复必要）
+- `git show HEAD:<rel>` 可用（证明 P0-1 的 diff 左侧来源成立）
