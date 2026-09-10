@@ -31,3 +31,7 @@ runtime.json
 *.vsix
 extensions/vscode/dist/
 extensions/vscode/LICENSE.txt
+
+# 视觉验证产物
+.dsh-vision-router/
+scripts/preview/
