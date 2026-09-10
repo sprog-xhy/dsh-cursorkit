@@ -21,8 +21,9 @@ import { translateRawEvent, SessionBridgeTracker, type RawCkpEvent, type RawSess
 import { registerDshAnswerer } from './bridge/dsh-approval-adapter.ts';
 import { attachAutoCheckpoint } from './checkpoint/auto-checkpoint.ts';
 import { CKP_PROTOCOL_VERSION } from '@dsh-cursorkit/protocol';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { SessionIndex, sessionIndexFile, cleanSessionTitle } from './session-index.ts';
+import { scanTitlesOnDisk } from './session-titles.ts';
 
 /** Public API surface — plugin entry plus the pieces a host harness needs to
  * test, embed, or extend the server. */
@@ -236,6 +237,25 @@ export function apply(ctx: HostCtx, config: HostConfig = {}): void {
           await bus.clearSnapshot(busSnapshotFile);
           log.info?.(`[cursorkit] restored event bus snapshot: seq=${bus.lastSeq}, events=${bus.replayFrom(0)?.length ?? 0}`);
         }
+
+        // 历史会话标题回填（后台一次性）：标题捕获是后加的能力，
+        // 之前创建的会话在列表里只有 id。直接读磁盘日志补上。
+        setTimeout(() => {
+          try {
+            const need = new Set(
+              sessionIndex
+                .all()
+                .filter(([, e]) => !e.title)
+                .map(([id]) => id),
+            );
+            if (need.size === 0) return;
+            const found = scanTitlesOnDisk(join(dshHome, 'sessions'), need);
+            for (const [id, title] of found) sessionIndex.setTitle(id, title);
+            log?.info?.(`[cursorkit] 标题回填：${found.size}/${need.size} 个历史会话`);
+          } catch (err) {
+            log?.warn?.(`[cursorkit] 标题回填失败: ${String(err)}`);
+          }
+        }, 1500).unref?.();
 
         const server = await startServer({
           token,
