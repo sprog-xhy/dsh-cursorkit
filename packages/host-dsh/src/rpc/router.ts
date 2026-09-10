@@ -220,6 +220,12 @@ export class Router {
       if (!s) throw new CkpError('SESSION_NOT_FOUND', `session ${params.id} not found`);
 
       const raw = (s.events ?? []) as RawSessionEvent[];
+      // 旧会话标题回填：标题捕获是后加的，此前创建的会话索引里没有标题。
+      // 这里从原始事件里推导（session/title 优先，其次首条真实用户消息）。
+      if (!svc.sessionIndex?.titleOf?.(params.id) && svc.sessionIndex?.setTitle) {
+        const derived = deriveSessionTitle(raw);
+        if (derived) svc.sessionIndex.setTitle(params.id, derived);
+      }
       const limit = Math.max(1, params.limit ?? 2000);
       const from = raw.length > limit ? raw.length - limit : 0;
       const slice = raw.slice(from);
