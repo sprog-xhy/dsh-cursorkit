@@ -158,11 +158,12 @@
     ]
   },
   "scripts": {
-    "build": "node esbuild.mjs",
+    "build": "node scripts/build-all.mjs",
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "package": "node scripts/bundle-deps.mjs && vsce package --no-dependencies",
-    "bundle:deps": "node scripts/bundle-deps.mjs"
+    "package": "node scripts/build-all.mjs && vsce package --no-dependencies",
+    "bundle:deps": "node scripts/bundle-deps.mjs",
+    "build:extension": "node esbuild.mjs"
   },
   "devDependencies": {
     "@dsh-cursorkit/client": "workspace:*",

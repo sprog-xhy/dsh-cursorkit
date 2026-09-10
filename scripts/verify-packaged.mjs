@@ -39,6 +39,10 @@ async function main() {
     ['host-dsh/lib/index.js', join(hostDir, 'lib', 'index.js')],
     ['host-dsh/cordis.patch.yml', join(hostDir, 'cordis.patch.yml')],
     ['protocol/lib/index.js', join(protocolDir, 'lib', 'index.js')],
+    // 前端资源必须随包（否则 Chat 界面白屏 —— 曾因 esbuild 清空 dist 导致）
+    ['dist/extension.js', join(extDir, 'dist', 'extension.js')],
+    ['dist/webview/chat.js', join(extDir, 'dist', 'webview', 'chat.js')],
+    ['dist/webview/chat.css', join(extDir, 'dist', 'webview', 'chat.css')],
   ]) {
     if (existsSync(p)) ok(`包内自带 ${name}`);
     else bad(`包内缺少 ${name} —— 安装形态不可用`);
