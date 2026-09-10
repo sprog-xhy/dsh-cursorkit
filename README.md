@@ -1,98 +1,129 @@
 # dsh-cursorkit
 
-为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）构建的 **Claude Desktop / Codex Desktop 风格桌面客户端**：对话为中心 + 任务并行 + 变更审查。
+**Cursor 同款 AI IDE**：以 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）为 agent 内核的 VSCode 扩展。
 
-> 完整执行纲领见 [`dsh-cursorkit-完整项目文档.md`](dsh-cursorkit-完整项目文档.md)（GOAL v2.0 + 架构 v2.0 汇总版）。
+面向习惯 Cursor 的用户：界面布局、交互、快捷键与 Cursor 一致，**无痛迁移**。
 
-## 架构一句话
+> V1（自建 Electron/React 壳）已废弃（git tag `v1-legacy`）；V2 全面重构为 VSCode 扩展路线。
+> 决策台账：[`docs/V2-DECISIONS.md`](docs/V2-DECISIONS.md) · 路线规划：[`docs/REFACTOR-PLAN.md`](docs/REFACTOR-PLAN.md)
 
-**纯插件 + 薄桌面外壳**，不改 dsh 一行源码：
+## 架构
 
 ```
-Desktop Shell (Electron) ── React SPA ── client SDK (CKP)
-        │                          │
-        └── sidecar: dsh 进程 ── host-dsh 插件 ──┘  (HTTP + SSE, 127.0.0.1)
+VSCode (host)
+├─ 扩展进程 (Node): sidecar 管理 / CKP client / IDE 适配（diff/SCM/快捷键/文件）
+│   └─ webview (React): Chat / Composer / Checkpoint / Settings 面板
+└─ sidecar: dsh --profile cursorkit（host-dsh 插件） ←CKP(HTTP+SSE)→
 ```
 
-- **CKP 协议**（`packages/protocol`）：前后端唯一共享契约（方法表/事件流/错误码/版本协商）
-- **host-dsh**（`packages/host-dsh`）：dsh 插件，进程内起 HTTP+SSE server，能力探测 fail-fast，唯一允许访问 `ctx.*` 的地方
-- **client**（`packages/client`）：事件源 SDK（EventStore + 纯函数 reducer + SSE 断线续传 + 乐观 UI）
-- **ui-kit**（`packages/ui-kit`）：Claude Desktop 质感组件（ToolCallCard / ApprovalCard 为体验核心）
-- **features**（`packages/features`）：页面级容器（三栏布局 / 命令面板 / 并行视图 / settings）
-- **desktop**（`apps/desktop`）：Electron 壳（sidecar 管理 / Keychain / 托盘 / 多窗口）
-- **web**（`apps/web`）：同一前端的浏览器版
-- **fixtures**（`fixtures/`）：确定性事件流 + host×client 集成测试
+- **CKP 协议**（`packages/protocol`）：前后端唯一共享契约，dsh 插件侧零改动
+- **host-dsh**（`packages/host-dsh`）：dsh 插件，动态 agent 创建（`ctx.agents.create`）、checkpoint、worktree、diff、approval
+- **client**（`packages/client`）：事件源 SDK（transport/store/reducer/乐观 UI）
+- **extensions/vscode**：VSCode 扩展本体（本仓库核心交付物）
 
-## 状态
+## 功能
 
-| 里程碑 | 状态 |
+| 功能 | 状态 |
 |---|---|
-| M0 地基（能力核验 / workspace / protocol） | ✅（audit 见 `docs/dsh-capability-audit.md`） |
-| M1 对话闭环（host-dsh / client / ui-kit） | ✅ **T-020 集成验收 15/15**（真实 dsh sidecar + wps 模型流式回复 + 断线重连快照回放） |
-| M2 审查闭环（diff.get / checkpoint / file.changed / trajectory） | ✅ 含**真实工具执行完整闭环**（kimi-k2.7-code 写文件 → file.changed → 自动 checkpoint） |
-| M3 平台化（settings / 命令面板） | ✅ 模型/MCP/插件/Skills/关于 + Cmd+K 命令面板 |
-| M4 并行（worktree / best-of-n） | ✅ 真实 git worktree 管理 + 并行会话实证脚本 |
-| M5 扩展（ext-host / 托盘 / 快捷键 / 多窗口） | ✅ manifest + 动态加载运行时；Electron 托盘 + 全局快捷键 + 多窗口 |
-| Desktop 壳（Electron + Keychain） | ✅ 真壳端到端验证（三栏 UI + 真实数据渲染） |
+| Chat 面板（Ask/Edit/Agent 三模式 + 多会话 + @file 上下文） | ✅ |
+| Agent 多文件任务（计划 → 逐文件 diff 审查 → 还原） | ✅ |
+| Tab 补全（ghost text，Tab 接受） | ✅ |
+| Ctrl+K 行内编辑（选中 → 指令 → 生成 → 内联应用） | ✅ |
+| Checkpoint 时间线（自动打点 + 一键回滚） | ✅ |
+| Rules（.cursorrules / .cursor/rules/*.mdc / ~/.cursorrules） | ✅ |
+| 模型选择器（真实读取 settings.yaml provider×model） | ✅ |
+| Settings 面板（Rules 查看 / Tab 开关 / 权限模式） | ✅ |
+| 侧边栏会话视图 | ✅ |
 
-**测试**：94 项全绿（protocol 11 / client 14 / ui-kit 8 / host-dsh 40 / features 15 / fixtures 6）。
+## 安装
+
+**依赖**：Node.js ≥ 18、pnpm、dsh、LLM 凭据
+
+```bash
+# 1. dsh（版本固定 0.1.1-rc.2）
+npm i -g @deepseek-ai/dsh@0.1.1-rc.2
+
+# 2. 一键安装扩展（检查依赖 → 构建 → 打包 vsix → 安装到 VSCode）
+bash scripts/install.sh
+
+# 或手动：cd extensions/vscode && npx vsce package && code --install-extension dsh-cursorkit-*.vsix
+```
+
+**LLM 凭据**（wps 示例，与 dsh 数据目录一致）：
+
+```bash
+# ~/.dsh-cursorkit/settings.yaml
+llm-pi-ai:
+  providers:
+    wps:
+      apiKeyEnv: WPS_API_KEY
+      api: openai-completions
+      baseURL: https://ai-kas.kso.net/codeplan/v1
+      models:
+        - id: moonshot/kimi-k2.7-code
+          contextWindow: 230000
+
+# ~/.dsh-cursorkit/.credentials.yaml（0600）
+refs:
+  WPS_API_KEY: <你的 key>
+```
+
+## 使用
+
+```bash
+code  # 打开 VSCode（或任意已装扩展的窗口）
+```
+
+1. 活动栏 ⚡（DSH CursorKit）→ 打开 Chat，或 `Ctrl+Alt+C`
+2. 首次使用自动启动 dsh sidecar（状态栏显示连接；数据目录 `~/.dsh-cursorkit`，可用 `CK_DSH_HOME` 覆盖）
+3. Chat 输入问题；Agent 模式做多文件任务；选中代码 `Ctrl+K` 行内编辑；输入代码 Tab 补全
+
+## 快捷键
+
+| 快捷键 | 功能 |
+|---|---|
+| `Ctrl+Alt+C` | 打开 Chat |
+| `Ctrl+K` | 行内编辑（选中代码后） |
+| `Ctrl+Alt+T` | Tab 补全开关 |
 
 ## 开发
 
 ```bash
 pnpm install
-pnpm -r build      # 全部包构建
-pnpm -r test       # 全部测试
+pnpm -r build     # 内核包构建
+cd extensions/vscode && node esbuild.mjs   # 扩展主进程
+cd extensions/vscode/webview && pnpm build # webview
+pnpm -r test:run  # 全量测试
 ```
 
-## 运行（桌面壳）
+集成验证（真实 dsh + wps）：
 
 ```bash
-cd apps/web && pnpm build          # 构建前端
-cd apps/desktop && pnpm start      # Electron 壳（自动复用/拉起 sidecar）
+node scripts/verify-m0.mjs   # 全链路: spawn→runtime→session→send→流式事件
+node scripts/verify-m3.mjs   # model.list 真实 settings + 会话
 ```
 
-浏览器版：`cd apps/web && pnpm dev`（需 sidecar 与 `$DSH_HOME/.cursorkit/runtime.json`）。
+## 测试
 
-## 多平台打包与安装
+**82 项全绿**：protocol 11 / client 14 / host-dsh 43 / fixtures 6 / 扩展 21。
 
-代码与 dsh 均跨平台（Electron 三平台；dsh sandbox 按平台选 runner：linux bwrap / mac seatbelt / win windows-acl；Keychain 走 safeStorage）。
+## 安全
 
-```bash
-cd apps/desktop && npm run dist
-```
-
-| 平台 | 产物 | 说明 |
-|---|---|---|
-| Linux | `release/*.AppImage`、`release/*.deb` | 已实测：AppImage 可执行（需 FUSE）、deb 安装到 /opt + .desktop |
-| Windows | `release/*.exe`（nsis） | 需在 Windows 或 CI 构建（cross-build 不支持） |
-| macOS | `release/*.dmg` | 需 macOS 或 CI；正式分发需签名/公证 |
-
-依赖：Node.js + `dsh`（`npx @deepseek-ai/dsh`）；sidecar 由应用自动复用/拉起。
-
-## 集成验收 / 复现
-
-- 测试 profile 模板与复现指南：`scripts/profile-template/README.md`
-- T-020 验收脚本：`scripts/run-acceptance.mjs`（15 断言，`--only` 可按项）
-- M4 并行实证脚本：`scripts/run-parallel.mjs`
+- 默认 `danger-full-access`（Cursor 风格自动执行），`dshCursorkit.permission.mode` 可调
+- 凭据：VSCode SecretStorage / `~/.dsh-cursorkit/.credentials.yaml`（0600）
+- sidecar 只监听 127.0.0.1 + token 认证；webview 严格 CSP
 
 ## 目录
 
 ```
-apps/
-  desktop/     Electron 壳（sidecar 管理/Keychain/托盘/多窗口）
-  web/         浏览器版前端（Vite + React）
 packages/
-  protocol/   ★ CKP 契约（唯一前后端共享）
-  client/     前端 SDK（transport/store/optimistic）
-  host-dsh/   ★ dsh 插件（capability/compat/rpc/bridge/checkpoint/worktree）
-  ui-kit/     展示组件
-  features/   页面容器（sessions/chat/settings/parallel/commands/ext-host）
-fixtures/     事件流 fixture + 集成测试
-docs/         audit / ADR / milestones / 验收报告
-scripts/      验收与实证脚本
+  protocol/    CKP 契约（方法/事件/错误码）
+  host-dsh/    dsh 插件（动态 agent/checkpoint/worktree/diff/approval）
+  client/      SDK（transport/store/reducer）
+extensions/
+  vscode/      扩展本体（src + webview React + esbuild/vite）
+  vscode/webview/  React 面板（Chat/Composer/Checkpoint/Settings）
+scripts/       安装 + 集成验证
+fixtures/      事件流 fixture + 集成测试
+docs/          决策台账 / 规划 / 审计
 ```
-
-## 安全默认值
-
-隔离、最小网络（loopback only）、无持久凭据（Keychain safeStorage）、显式审批、执行后清理。

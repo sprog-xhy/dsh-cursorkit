@@ -215,3 +215,35 @@
 5. M3 智能与配置
 6. M4 分发与文档
 7. 测试贯穿；每 milestone 收尾跑全部测试 + 更新 README/台账
+
+---
+
+## 9. 实现状态（2026-09-10）
+
+**全部里程碑已完成并验证**，82 测试全绿 + 真实 dsh/wps 端到端验证通过。
+
+| 里程碑 | 内容 | 状态 |
+|---|---|---|
+| M0 | 扩展骨架 + sidecar + Chat 面板 + 动态 agent 全链路 | ✅ verify-m0 真实通过 |
+| M1a | 上下文注入（context.get + @file + 选中） | ✅ |
+| M1b | 审查闭环（改动列表 → diff → 还原） | ✅ |
+| M1c | Checkpoint 时间线 | ✅ |
+| M1d | Ask/Edit/Agent 三模式 | ✅ |
+| M2 | Composer（多会话 + 计划视图 + markdown 渲染） | ✅ |
+| M3a | 模型选择器（真实 settings 解析 16 模型） | ✅ verify-m3 真实通过 |
+| M3b | Ctrl+K 行内编辑 | ✅ |
+| M3c | Tab 补全（InlineCompletionProvider） | ✅ |
+| M3d | Rules（.cursorrules/.mdc/~/.cursorrules） | ✅ |
+| M4a | Settings 面板 | ✅ |
+| M4b | vsix 打包 + install.sh | ✅ vsix 202KB 打包成功 |
+| M4c | README + 全量测试 + 验收 | ✅ |
+
+**关键实现细节**（供后续维护）：
+- dsh 动态 agent：`session.create` 直接用 `ctx.agents.create`（factory 内部建 session+agent），
+  不能先 `sessions.create`（id 冲突）；session id 用唯一格式
+- agent-loop 由 dsh-base 提供（不能 insert，profile 层只能顶层覆盖配置）
+- host-dsh 包内 cordis.patch.yml 只声明 host 插件（bundle 自动加载）；profile 层 patch 为占位
+- model.list 读 `$DSH_HOME/settings.yaml` 的 llm-pi-ai.providers（轻量 YAML 扫描）
+- vitest 的 node:http 对 SSE 流式响应有限制 → fixtures 测试用 bus 直驱 store，
+  SSE 端到端由 verify-m0.mjs（真实进程）验证
+- 扩展数据目录 `~/.dsh-cursorkit`（CK_DSH_HOME 覆盖），绝不用 ambient DSH_HOME

@@ -26,3 +26,8 @@ logs/
 # Runtime secrets
 *.token
 runtime.json
+
+# VSCode 扩展打包产物
+*.vsix
+extensions/vscode/dist/
+extensions/vscode/LICENSE.txt
