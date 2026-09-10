@@ -21,6 +21,8 @@ import { translateRawEvent, SessionBridgeTracker, type RawCkpEvent, type RawSess
 import { registerDshAnswerer } from './bridge/dsh-approval-adapter.ts';
 import { attachAutoCheckpoint } from './checkpoint/auto-checkpoint.ts';
 import { CKP_PROTOCOL_VERSION } from '@dsh-cursorkit/protocol';
+import { dirname } from 'node:path';
+import { SessionIndex, sessionIndexFile } from './session-index.ts';
 
 /** Public API surface — plugin entry plus the pieces a host harness needs to
  * test, embed, or extend the server. */
@@ -196,8 +198,16 @@ export function apply(ctx: HostCtx, config: HostConfig = {}): void {
   // 2. Start the RPC server via ctx.effect (auto-closed on unload).
   const bus = new EventBus();
   const approvals = new ApprovalBridge({ bus });
-  /** 会话 → 模型（内存；dsh session 本身不持久化模型选择）。 */
-  const sessionModels = new Map<string, string>();
+  /**
+   * 会话 → 模型（落盘持久化）：
+   * dsh 的 session 不记录模型选择，重启后 session.get 无从回读；
+   * 这里持久化到 runtime.json 同目录，重启后仍能准确跟踪。
+   */
+  const dshHome = dirname(tokenFile).replace(/\/\.cursorkit$/, '');
+  const sessionIndex = new SessionIndex({
+    file: sessionIndexFile(dshHome),
+    onWarn: (m) => log.warn?.(`[cursorkit] ${m}`),
+  });
   // Cross-process ring snapshot: surviving a host restart with incremental
   // replay instead of forcing every client to full-rebuild.
   const busSnapshotFile = `${tokenFile}.bus.json`;
@@ -235,7 +245,7 @@ export function apply(ctx: HostCtx, config: HostConfig = {}): void {
           sessions: sessionsCompat(ctx),
           agents: agentsCompat(ctx),
           appVersion: report.dshVersion,
-          sessionModels,
+          sessionIndex,
         });
 
         if (disposed) {

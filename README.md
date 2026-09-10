@@ -99,13 +99,16 @@ pnpm -r test:run  # 全量测试
 集成验证（真实 dsh + wps）：
 
 ```bash
-node scripts/verify-m0.mjs   # 全链路: spawn→runtime→session→send→流式事件
-node scripts/verify-m3.mjs   # model.list 真实 settings + 会话
+node scripts/verify-m0.mjs        # 全链路: spawn→runtime→session→send→流式事件
+node scripts/verify-m3.mjs        # model.list 真实 settings + 会话
+node scripts/verify-bugfixes.mjs  # 依赖同步/会话索引/重启后历史可用/diff 来源 等 9 项
+node scripts/check-css-classes.mjs # CSS 类名交叉检查
 ```
 
 ## 测试
 
-**82 项全绿**：protocol 11 / client 14 / host-dsh 43 / fixtures 6 / 扩展 21。
+**214 项全绿**：protocol 11 / client 14 / host-dsh 70 / fixtures 6 / 扩展 113
+（含真实 sidecar 冷启动集成测试与组件渲染测试；`CK_SKIP_INTEGRATION=1` 可跳过需要 dsh 的用例）。
 
 ## 安全
 

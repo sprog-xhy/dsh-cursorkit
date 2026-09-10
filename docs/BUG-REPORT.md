@@ -2,7 +2,8 @@
 
 > 排查日期：2026-09-10 ｜ 范围：`extensions/vscode/src`（扩展进程）、`extensions/vscode/webview/src`（React 面板）、
 > `packages/host-dsh`（dsh 插件侧回归确认）
-> 结论：**发现并修复 20 个实质缺陷**（其中 5 个「功能完全失效」级），另完成 15 项 UI 优化。
+> 结论：**发现并修复 22 个实质缺陷**（其中 7 个「功能完全失效」级），另完成 15 项 UI 优化。
+> 第二轮复核：确认前 20 项修复全部真实落地，并继续修掉了 3 项「遗留项」+ 2 个新发现的 P0。
 > 全部修复已提交（`2f837e4` 及其前后提交），扩展测试 41 项 / 内核测试 74 项全绿。
 
 ## 一、功能失效级（P0）
@@ -23,6 +24,9 @@
 |---|---|---|---|
 | 19 | 审查面板无条件显示 `+N/-0`（host 的 deletions 恒为 0，因为增删行数是从工具输出估算的） | 每个改动都显示"-0"，用户以为是真实 diff 统计 | 未知时显示 `—`，仅在 >0 时显示对应项，并加 tooltip「估算，以 diff 为准」 |
 | 20 | `client` 的 `SubscribeOptions.fromSeq` 注释写 "inclusive"，而服务端 `replayFrom` 是**排他**边界 | 后续按注释改动会导致重连时事件重复（消息重复） | 注释纠正为排他语义；实测重连使用 `lastSeq` 不会重复 |
+
+| 21 | `sidecar.ensureProfile` **从不安装 profile 依赖**；且 pnpm 的 `file:` 依赖是**快照**，host-dsh 源码/构建更新后 profile 内副本不会刷新 | 全新环境：sidecar 永远起不来（运行时才报 `Cannot find module .../host-dsh/lib/...`）；更新后：启动直接失败 | 新增 `syncProfileDeps`（源码指纹 + 时间戳判定，pnpm→npm 回退，装完写 stamp），扩展与验证脚本共用；**冷启动集成测试证明零手工步骤可启动** |
+| 22 | dsh 重启后**不把持久化会话载入内存**，而 host 侧没有任何会话索引 | `session.get` 报 SESSION_NOT_FOUND、`session.list` 为空 → 用户视角「重启后历史会话全部消失，也无法继续」 | 新增落盘的 `SessionIndex`（id → model/workspace/createdAt）：`list` 合并历史、`get` 回退索引、`send` 先 `agents.resume` 再发送；**实测重启后仍可列出并回读会话** |
 
 ## 二、功能缺陷级（P1）
 
@@ -88,16 +92,25 @@
 类型检查（0 错误）、扩展/webview 构建、156 项自动化测试（含激活与组件渲染）、
 真实 dsh sidecar 的协议层实测。建议你在 VSCode 中按 F5 或安装 vsix 后实测一次。
 
-## 六、遗留（未修，需产品决策）
+## 六、遗留项（第二轮已全部修复）
 
-1. ~~协议未暴露模型字段~~ **已解决**：host 侧新增 `sessionModels` 内存映射（`session.create` 时记录），
-   `session.get`/`session.list` 回读 `Session.model`；扩展切换会话时即可精确跟踪模型。
-   局限：sidecar 重启后该映射丢失（回读为 undefined），此时退化为「模型未知」不误重建会话。
-   真实 sidecar 已验证：`session.get` 返回 `wps/moonshot/kimi-k2.7-code`。
-2. **thinking 事件仍是逐 delta 推送**：已按 `role: 'thinking'` 折叠渲染，但一次思考会不断更新同一块，
-   长思考过程无法分段；如需分段需协议侧给 turn/step 边界。
-3. **tool 事件与文本的时序**：agent 在同一轮里「文本 → 工具 → 文本」会形成两个 assistant 块
-   （符合 Cursor 的分段观感），若希望合并成单块需协议提供 turn 分组信息。
+1. ✅ **模型/会话元数据跨重启丢失** → 改为落盘 `SessionIndex`（并对旧 `session-models.json` 停用）。
+   实测：重启后 `session.get` 仍返回 `wps/moonshot/kimi-k2.7-code`。
+2. ✅ **thinking 逐 delta 无法分段** → 协议新增**可选** `turn`/`step`（`CkpTurnStep`，向后兼容），
+   bridge 从 dsh 原始事件透传；前端 thinking 块按 `turn-step` 分段，不再长期并成一块。
+3. ✅ **同一轮「文本 → 工具 → 文本」视觉割裂** → 前端按 `turn` 归组（`.turn` 容器 + 收紧间距），
+   同一轮的回复与工具卡片成组显示；`groupByTurn` 有 4 项单测 + 2 项渲染断言。
+
+顺带修复（同批）：
+- **空文本分片仍被广播**成 `message.delta`（无意义事件、可能生成空 assistant 块）→ 现在返回 null
+- **reasoning 分片没有走 thinking 事件** → 按 dsh 真实分片类型 `reasoning-delta` 正确分流
+
+## 六之二、本轮新发现、尚未修复（需协议扩展，建议下轮做）
+
+- **历史会话的消息内容不会回放**：会话索引让历史会话可列出/可继续，但 `session.get` 只返回
+  `lastSeq`，CKP 没有"读取持久化历史"的方法；切到历史会话时消息区为空（发送后恢复正常）。
+  建议：新增 `session.history`（host 侧读 `$DSH_HOME/sessions/**/session.jsonl.zstd` 或复用 dsh 投影），
+  属协议扩展，按约定需走 ADR。
 
 ## 七、验证证据（可复现）
 

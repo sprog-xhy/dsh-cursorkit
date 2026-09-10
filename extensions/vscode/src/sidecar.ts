@@ -18,6 +18,7 @@ import {
   buildProfilePatch,
   profileDir,
   profilePatchNeedsRepair,
+  syncProfileDeps,
   RUNTIME_RELATIVE,
 } from './profile-config.ts';
 import * as vscode from 'vscode';
@@ -190,6 +191,7 @@ export class SidecarManager implements vscode.Disposable {
     }
     if (!needPkg && !needPatch) {
       this.log(`profile ok: ${dir}`);
+      await this.syncDeps(dir);
       return;
     }
 
@@ -202,6 +204,22 @@ export class SidecarManager implements vscode.Disposable {
       this.log(`profile patch ${needPkg ? 'created' : 'repaired'}: ${patchPath}`);
     }
     this.log(`profile ready: ${dir}`);
+    await this.syncDeps(dir);
+  }
+
+  /** 同步 profile 依赖（缺失或源码变化时安装；共享实现，脚本亦复用）。 */
+  private async syncDeps(dir: string): Promise<void> {
+    try {
+      const res = await syncProfileDeps({
+        dir,
+        hostDir: join(repoRoot(), 'packages', 'host-dsh'),
+        log: (m) => this.log(m),
+      });
+      this.log(res.installed ? 'profile deps installed' : 'profile deps ok');
+    } catch (err) {
+      // 依赖不可用时 sidecar 必然启动失败 → 直接抛出可读错误
+      throw new Error(`${(err as Error).message}`);
+    }
   }
 
   private permissionMode(): string {

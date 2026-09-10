@@ -33,8 +33,13 @@ export interface RouterServices {
   bus: EventBus;
   capabilities: CapabilityReport;
   dshVersion: string;
-  /** 会话 → 模型（内存记录；重启后丢失，回读为 undefined）。 */
-  sessionModels?: Map<string, string>;
+  /** 会话索引（落盘；重启后仍可列出/回读历史会话）。 */
+  sessionIndex?: {
+    get(id: string): { model: string; workspace: string; createdAt: number } | undefined;
+    modelOf(id: string): string | undefined;
+    set(id: string, entry: { model: string; workspace: string; createdAt: number }): void;
+    all(): [string, { model: string; workspace: string; createdAt: number }][];
+  };
 }
 
 type Handler<M extends CkpMethodName> = (
@@ -91,15 +96,31 @@ export class Router {
     };
 
     this.register('session.list', () => {
-      return svc.sessions.list().map((s) => ({
+      const live = svc.sessions.list();
+      const liveIds = new Set(live.map((s) => s.id));
+      const rows = live.map((s) => ({
         id: s.id,
         workspace: s.header?.cwd ?? '',
-        model: svc.sessionModels?.get(s.id),
+        model: svc.sessionIndex?.modelOf(s.id),
         createdAt: s.header?.createdAt ?? Date.now(),
         updatedAt: Date.now(),
         status: 'idle' as const,
         summary: undefined,
       }));
+      // 补齐"已持久化但未载入内存"的历史会话（dsh 重启后不会自动载入）
+      for (const [id, entry] of svc.sessionIndex?.all() ?? []) {
+        if (liveIds.has(id)) continue;
+        rows.push({
+          id,
+          workspace: entry.workspace,
+          model: entry.model,
+          createdAt: entry.createdAt,
+          updatedAt: entry.createdAt,
+          status: 'idle' as const,
+          summary: undefined,
+        });
+      }
+      return rows;
     });
 
     this.register('session.create', async (params) => {
@@ -126,8 +147,12 @@ export class Router {
           maxTokens: 8192,
         },
       });
-      // 记录会话模型（协议 Session.model 已有字段，供 session.get/list 回读）
-      svc.sessionModels?.set(sessionId, model.full);
+      // 记录到会话索引（供 session.get/list 回读，且重启后历史不丢）
+      svc.sessionIndex?.set(sessionId, {
+        model: model.full,
+        workspace: params.workspace,
+        createdAt: Date.now(),
+      });
       const s = svc.sessions.get(sessionId);
       return {
         id: sessionId,
@@ -141,16 +166,31 @@ export class Router {
 
     this.register('session.get', (params) => {
       const s = svc.sessions.get(params.id);
-      if (!s) throw new CkpError('SESSION_NOT_FOUND', `session ${params.id} not found`);
-      return {
-        id: s.id,
-        workspace: s.header?.cwd ?? '',
-        model: svc.sessionModels?.get(s.id),
-        createdAt: s.header?.createdAt ?? Date.now(),
-        updatedAt: Date.now(),
-        status: 'idle' as const,
-        lastSeq: s.seq,
-      };
+      if (s) {
+        return {
+          id: s.id,
+          workspace: s.header?.cwd ?? '',
+          model: svc.sessionIndex?.modelOf(s.id),
+          createdAt: s.header?.createdAt ?? Date.now(),
+          updatedAt: Date.now(),
+          status: 'idle' as const,
+          lastSeq: s.seq,
+        };
+      }
+      // 非活跃会话：用索引里的元数据回答（重启后仍可展示历史，lastSeq=0 表示需完整回放）
+      const entry = svc.sessionIndex?.get(params.id);
+      if (entry) {
+        return {
+          id: params.id,
+          workspace: entry.workspace,
+          model: entry.model,
+          createdAt: entry.createdAt,
+          updatedAt: entry.createdAt,
+          status: 'idle' as const,
+          lastSeq: 0,
+        };
+      }
+      throw new CkpError('SESSION_NOT_FOUND', `session ${params.id} not found`);
     });
 
     this.register('session.fork', (params) => {
@@ -173,7 +213,12 @@ export class Router {
     });
 
     this.register('session.send', async (params) => {
-      const s = svc.sessions.get(params.id);
+      let s = svc.sessions.get(params.id);
+      if (!s) {
+        // 历史会话（持久化但未载入内存）→ 先恢复，再继续；恢复不了才报 NOT_FOUND
+        await restoreForSend(svc, params.id);
+        s = svc.sessions.get(params.id);
+      }
       if (!s) throw new CkpError('SESSION_NOT_FOUND', `session ${params.id} not found`);
       // 模式提示（V2-DECISIONS D15）：Ask=纯问答；Edit=聚焦修改；Agent=默认多文件
       const mode = params.mode ?? 'agent';
@@ -209,8 +254,12 @@ export class Router {
         content: [{ type: 'text' as const, text }],
         createdAt: Date.now(),
       };
-      const agentFor = svc.agents.get(params.id) ??
+      let agentFor = svc.agents.get(params.id) ??
         svc.agents.list().find((a) => (a as { session?: { id: string } }).session?.id === params.id);
+      if (!agentFor) {
+        // 历史会话（持久化但未载入内存）→ 先恢复 agent 再发送
+        agentFor = await restoreForSend(svc, params.id);
+      }
       const target = agentFor as AgentView | undefined;
       if (target?.send) {
         target.send(message, 'next-turn', true);
@@ -390,6 +439,42 @@ export class Router {
       return [];
     });
   }
+}
+
+/**
+ * 为非活跃会话恢复 agent（历史会话继续对话的关键）。
+ *
+ * dsh 重启后不会把持久化会话载入内存，`agents.resume({ resumeSessionId })`
+ * 会从持久化存储加载会话并新建 agent；失败返回 undefined（由调用方报错）。
+ */
+async function restoreForSend(svc: RouterServices, sessionId: string): Promise<AgentView | undefined> {
+  const entry = svc.sessionIndex?.get(sessionId);
+  // 索引里没有 → 不是我们创建过的会话，不尝试恢复（交由调用方报 NOT_FOUND）
+  if (!entry) return undefined;
+  const registry = svc.agents as AgentRegistryView & {
+    resume?: (opts: {
+      resumeSessionId: string;
+      agentOptions?: { provider?: string; model?: string };
+    }) => Promise<unknown>;
+  };
+  if (typeof registry.resume !== 'function') return undefined;
+  const model = parseModelRef(entry.model);
+  try {
+    await registry.resume({
+      resumeSessionId: sessionId,
+      ...(model.provider
+        ? { agentOptions: { provider: model.provider, model: model.model } }
+        : { agentOptions: { model: model.model } }),
+    });
+  } catch (err) {
+    // 已索引说明确实存在过；恢复失败要给出可诊断的错误，而不是含糊的 NOT_FOUND
+    throw new CkpError(
+      'SESSION_NOT_FOUND',
+      `会话 ${sessionId} 无法恢复：${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  return svc.agents.get(sessionId) ??
+    svc.agents.list().find((a) => (a as { session?: { id: string } }).session?.id === sessionId);
 }
 
 /** settings.yaml 路径（$DSH_HOME/settings.yaml，环境变量解析）。 */

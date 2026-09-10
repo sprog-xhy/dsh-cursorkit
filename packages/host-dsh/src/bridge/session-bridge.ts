@@ -65,6 +65,14 @@ function dataOf(raw: RawSessionEvent): Record<string, unknown> {
   return (raw.data ?? {}) as Record<string, unknown>;
 }
 
+/** 透传 dsh 的轮次/步骤标记（供 UI 分组，见 protocol CkpTurnStep）。 */
+function turnStepOf(d: Record<string, unknown>): { turn?: number; step?: number } {
+  const out: { turn?: number; step?: number } = {};
+  if (typeof d.turn === 'number') out.turn = d.turn;
+  if (typeof d.step === 'number') out.step = d.step;
+  return out;
+}
+
 /**
  * Translate one raw dsh event into a CKP event payload (without seq/ts —
  * EventBus assigns them). Returns null when the event maps to nothing.
@@ -85,8 +93,16 @@ export function translateRawEvent(
 
     case 'assistant/chunk': {
       const chunk = d.chunk as { type?: string; text?: string } | undefined;
-      const text = chunk?.type === 'text-delta' && typeof chunk.text === 'string' ? chunk.text : '';
-      return { sessionId, type: 'message.delta', text };
+      // dsh 的真实分片类型：text-delta / reasoning-delta / tool-call-delta / block-* / usage / finish
+      // reasoning 片段走 thinking 事件，避免混进正文；其余分片不产生事件
+      const isThinking = chunk?.type === 'reasoning-delta';
+      const text = typeof chunk?.text === 'string' && (chunk.type === 'text-delta' || isThinking)
+        ? chunk.text
+        : '';
+      if (!text) return null;
+      return isThinking
+        ? { sessionId, type: 'thinking.delta', text, ...turnStepOf(d) }
+        : { sessionId, type: 'message.delta', text, ...turnStepOf(d) };
     }
 
     case 'assistant/message': {
@@ -115,6 +131,7 @@ export function translateRawEvent(
       return {
         sessionId,
         type: 'tool.call',
+        ...turnStepOf(d),
         call: {
           callId: String(d.callId ?? `${sessionId}-${raw.seq ?? Date.now()}`),
           sessionId,

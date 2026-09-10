@@ -575,3 +575,10 @@ body {
 
 /* 工具卡片操作行 */
 .tool-card-actions { display: flex; gap: 6px; margin-top: 6px; justify-content: flex-end; }
+
+/* ── 轮次分组（同一轮的回复 + 内嵌工具卡片视觉成组） ── */
+.turn { display: flex; flex-direction: column; gap: 6px; }
+.turn > .msg-assistant { margin-top: 2px; }
+.turn > .msg-tool { margin-top: 0; }
+/* 轮次内首行与上一轮之间保留主间距（.messages 的 gap 已提供） */
+.turn-tagged > .msg-user:first-child { margin-bottom: 2px; }

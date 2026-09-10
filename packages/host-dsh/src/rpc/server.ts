@@ -42,8 +42,13 @@ export interface ServerDeps {
   agents: AgentRegistryView;
   /** Return the app version string. */
   appVersion: string;
-  /** 会话 → 模型（内存记录，供 session.get/list 回读）。 */
-  sessionModels?: Map<string, string>;
+  /** 会话索引（落盘；供 session.get/list 回读与历史会话列出）。 */
+  sessionIndex?: {
+    get(id: string): { model: string; workspace: string; createdAt: number } | undefined;
+    modelOf(id: string): string | undefined;
+    set(id: string, entry: { model: string; workspace: string; createdAt: number }): void;
+    all(): [string, { model: string; workspace: string; createdAt: number }][];
+  };
 }
 
 export interface ServerHandle {
@@ -109,7 +114,7 @@ export function startServer(deps: ServerDeps): Promise<ServerHandle> {
     bus,
     capabilities,
     dshVersion: deps.appVersion,
-    sessionModels: deps.sessionModels,
+    sessionIndex: deps.sessionIndex,
   });
   const startedAt = Date.now();
 

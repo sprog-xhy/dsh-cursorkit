@@ -135,12 +135,21 @@ const configValues: Record<string, unknown> = {
   'dshCursorkit.permission.mode': 'danger-full-access',
 };
 
+/** 测试可覆盖的配置值（优先于默认值）。 */
+export const configOverrides: Record<string, unknown> = {};
+
+/** 覆盖某个配置项（测试用，如把 sidecar.dshHome 指向临时目录）。 */
+export function setConfig(key: string, value: unknown): void {
+  configOverrides[key] = value;
+}
+
 export const workspace = {
   workspaceFolders: [{ uri: Uri.file('/tmp/ws'), name: 'ws', index: 0 }],
   textDocuments: [],
   getConfiguration: (section?: string) => ({
     get: <T>(key: string, fallback?: T): T => {
       const full = section ? `${section}.${key}` : key;
+      if (full in configOverrides) return configOverrides[full] as T;
       return (configValues[full] as T) ?? (fallback as T);
     },
     update: async (): Promise<void> => undefined,

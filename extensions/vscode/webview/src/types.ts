@@ -16,6 +16,9 @@ export interface ChatItem {
   level?: 'info' | 'error' | 'stopped';
   /** 时间戳。 */
   ts?: number;
+  /** dsh 轮次/步骤（用于把同一轮的内容归组，来自协议 CkpTurnStep）。 */
+  turn?: number;
+  step?: number;
 }
 
 /** 审查改动（review.list）。 */

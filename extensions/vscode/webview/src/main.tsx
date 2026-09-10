@@ -52,7 +52,7 @@ interface InitMsg {
 }
 interface EventMsg {
   type: 'event';
-  event: CkpEvent;
+  event: CkpEvent & { turn?: number; step?: number };
 }
 interface ErrorMsg {
   type: 'error';
@@ -226,11 +226,13 @@ function App(): JSX.Element {
   function handleEvent(evt: CkpEvent): void {
     switch (evt.type) {
       case 'message.user':
+        // 用户消息自身无轮次标记（dsh 的 user/message 不带 turn）→ 独立成组
         pushItem({ id: `u-${evt.ts}`, role: 'user', text: evt.text });
         setBusy(true);
         break;
       case 'message.delta': {
-        const id = `a-${evt.sessionId}`;
+        // 按 turn/step 归组：同一轮的文本持续追加到同一条，跨轮不会混
+        const id = `a-${evt.sessionId}-${evt.turn ?? 'x'}-${evt.step ?? 'x'}`;
         setItems((prev) => {
           const last = prev[prev.length - 1];
           if (last && last.id === id) {
@@ -238,12 +240,16 @@ function App(): JSX.Element {
             copy[copy.length - 1] = { ...last, text: last.text + evt.text };
             return copy;
           }
-          return [...prev, { id, role: 'assistant', text: evt.text, ts: evt.ts }];
+          return [
+            ...prev,
+            { id, role: 'assistant', text: evt.text, ts: evt.ts, turn: evt.turn, step: evt.step },
+          ];
         });
         break;
       }
       case 'thinking.delta': {
-        const id = `t-${evt.sessionId}`;
+        // thinking 也按 turn/step 分段（此前同一会话的思考会被并成一块）
+        const id = `t-${evt.sessionId}-${evt.turn ?? 'x'}-${evt.step ?? 'x'}`;
         setItems((prev) => {
           const last = prev[prev.length - 1];
           if (last && last.id === id) {
@@ -251,7 +257,10 @@ function App(): JSX.Element {
             copy[copy.length - 1] = { ...last, text: last.text + evt.text };
             return copy;
           }
-          return [...prev, { id, role: 'thinking', text: evt.text, ts: evt.ts }];
+          return [
+            ...prev,
+            { id, role: 'thinking', text: evt.text, ts: evt.ts, turn: evt.turn, step: evt.step },
+          ];
         });
         break;
       }
@@ -263,7 +272,14 @@ function App(): JSX.Element {
         } catch {
           name = evt.call.name ?? 'tool';
         }
-        pushItem({ id: `c-${evt.call.callId}`, role: 'tool', text: name, status: 'running' });
+        pushItem({
+          id: `c-${evt.call.callId}`,
+          role: 'tool',
+          text: name,
+          status: 'running',
+          turn: evt.turn,
+          step: evt.step,
+        });
         setBusy(true);
         break;
       }

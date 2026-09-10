@@ -10,6 +10,10 @@ import {
   profilePatchNeedsRepair,
   profileDir,
   DEFAULT_DSH_HOME,
+  INSTALLED_HOST_REL,
+  installCommand,
+  installNeeded,
+  fingerprintOf,
 } from '../src/profile-config.ts';
 
 describe('buildProfilePatch', () => {
@@ -89,5 +93,42 @@ describe('buildProfilePackage / profileDir', () => {
   it('默认 DSH_HOME 是独立目录（不污染 ~/.dsh）', () => {
     expect(DEFAULT_DSH_HOME).toContain('.dsh-cursorkit');
     expect(DEFAULT_DSH_HOME.endsWith('/.dsh')).toBe(false);
+  });
+});
+
+describe('installNeeded / fingerprintOf（P0：profile 依赖快照过期）', () => {
+  it('未安装过 → 需要安装', () => {
+    expect(installNeeded({ stamp: null, fingerprint: 'a', hasInstalledPackage: false })).toBe(true);
+  });
+
+  it('已安装但指纹不同（源码/构建更新）→ 需要重装', () => {
+    expect(installNeeded({ stamp: 'old', fingerprint: 'new', hasInstalledPackage: true })).toBe(true);
+  });
+
+  it('已安装且指纹一致 → 跳过（避免每次启动都装）', () => {
+    expect(installNeeded({ stamp: 'same', fingerprint: 'same', hasInstalledPackage: true })).toBe(false);
+  });
+
+  it('无指纹文件但已安装 → 重装一次以建立指纹', () => {
+    expect(installNeeded({ stamp: null, fingerprint: 'x', hasInstalledPackage: true })).toBe(true);
+  });
+
+  it('指纹对文件顺序不敏感，对内容变化敏感', () => {
+    const a = { name: 'lib/a.js', size: 10, mtimeMs: 1000 };
+    const b = { name: 'lib/b.js', size: 20, mtimeMs: 2000 };
+    expect(fingerprintOf([a, b])).toBe(fingerprintOf([b, a]));
+    expect(fingerprintOf([a, b])).not.toBe(fingerprintOf([a, { ...b, size: 999 }]));
+    expect(fingerprintOf([a, b])).not.toBe(fingerprintOf([a, { ...b, mtimeMs: 999999 }]));
+  });
+
+  it('安装命令为 pnpm install（dsh 生态一致）', () => {
+    const cmd = installCommand();
+    expect(cmd.bin).toBe('pnpm');
+    expect(cmd.args).toContain('install');
+  });
+
+  it('INSTALLED_HOST_REL 指向 profile 内 host-dsh 的 package.json', () => {
+    expect(INSTALLED_HOST_REL).toContain('node_modules');
+    expect(INSTALLED_HOST_REL.endsWith('host-dsh/package.json')).toBe(true);
   });
 });

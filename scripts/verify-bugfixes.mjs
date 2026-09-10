@@ -11,7 +11,7 @@
  * 用法：node scripts/verify-bugfixes.mjs
  */
 import { spawn, execFile } from 'node:child_process';
-import { readFileSync, rmSync } from 'node:fs';
+import { readFileSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { promisify } from 'node:util';
@@ -30,6 +30,34 @@ const bad = (m) => {
 };
 
 let proc = null;
+
+/** 用扩展的同一实现同步 profile 依赖（缺快照/源码变化时安装）。 */
+async function syncDeps() {
+  const { execFileSync } = await import('node:child_process');
+  const repo = process.cwd();
+  const dir = join(DSH_HOME, 'profiles', 'cursorkit');
+  const bundled = '/tmp/ck-profile-config.mjs';
+  const esbuildBin = join(repo, 'extensions/vscode/node_modules/.bin/esbuild');
+  execFileSync(
+    esbuildBin,
+    [
+      join(repo, 'extensions/vscode/src/profile-config.ts'),
+      '--bundle',
+      '--platform=node',
+      '--format=esm',
+      `--outfile=${bundled}`,
+      '--log-level=error',
+    ],
+    { cwd: repo, stdio: 'pipe' },
+  );
+  const mod = await import(bundled);
+  const res = await mod.syncProfileDeps({
+    dir,
+    hostDir: join(repo, 'packages', 'host-dsh'),
+    log: (m) => log(`[deps] ${m}`),
+  });
+  if (res.installed) ok('profile 依赖已同步安装（此前缺失或源码已更新）');
+}
 
 async function boot() {
   try {
@@ -74,6 +102,7 @@ async function boot() {
 }
 
 async function main() {
+  await syncDeps();
   await boot();
   const info = JSON.parse(readFileSync(runtimeFile, 'utf8'));
   const base = `http://127.0.0.1:${info.port}`;
@@ -126,12 +155,84 @@ async function main() {
     bad(`git show HEAD:<rel> 失败：${err.message}`);
   }
 
-  // 5. diff.get（审查面板数据源）
+  // 5. 会话模型持久化（重启后仍可回读）
+  try {
+    const f = join(DSH_HOME, '.cursorkit', 'session-index.json');
+    // 落盘有防抖（400ms）→ 轮询到内容包含本次会话（最多 4s）
+    const readIndex = () => {
+      try {
+        return JSON.parse(readFileSync(f, 'utf8'));
+      } catch {
+        return null;
+      }
+    };
+    for (let i = 0; i < 20; i++) {
+      const idx = readIndex();
+      if (idx && idx[s1.id]) break;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    const idx = readIndex();
+    if (idx?.[s1.id]?.model === MODEL) {
+      ok(`session-index.json 已落盘（${s1.id} → ${idx[s1.id].model} @ ${idx[s1.id].workspace}）`);
+    } else if (idx?.[s1.id]) {
+      bad(`索引里模型不正确：${JSON.stringify(idx[s1.id])}`);
+    } else {
+      bad('未生成 session-index.json（重启后历史会话会消失）');
+    }
+  } catch (err) {
+    bad(`session-models 检查失败：${err.message}`);
+  }
+
+  // 6. diff.get（审查面板数据源）
   try {
     const changes = await call('diff.get', { sessionId: s1.id });
     ok(`diff.get 可用（返回 ${Array.isArray(changes) ? changes.length : '?'} 条改动）`);
   } catch (err) {
     log(`note: diff.get 当前返回：${err.message.slice(0, 80)}`);
+  }
+
+  // 7. 重启后模型回读（遗留项：内存映射重启即丢）
+  try {
+    const oldPid = info.pid;
+    try {
+      process.kill(oldPid, 'SIGTERM');
+    } catch {
+      /* ignore */
+    }
+    await new Promise((r) => setTimeout(r, 1200));
+    rmSync(runtimeFile, { force: true });
+    log('已结束旧 sidecar，重新启动以验证模型持久化…');
+    proc = null;
+    await boot();
+    const info2 = JSON.parse(readFileSync(runtimeFile, 'utf8'));
+    const base2 = `http://127.0.0.1:${info2.port}`;
+    const headers2 = { authorization: `Bearer ${info2.token}`, 'content-type': 'application/json' };
+    const res = await fetch(`${base2}/v1/rpc/session.get`, {
+      method: 'POST',
+      headers: headers2,
+      body: JSON.stringify({ id: 'r-restart', method: 'session.get', params: { id: s1.id } }),
+    });
+    const body = await res.json();
+    if (!body.ok) {
+      bad(`重启后 session.get 失败：${JSON.stringify(body.error)}`);
+    } else if (body.result.model === MODEL) {
+      ok(`重启后仍能回读历史会话：${s1.id} → ${body.result.model}`);
+    } else {
+      bad(`重启后模型丢失（model=${String(body.result.model)}）→ 会退化为「模型未知」`);
+    }
+
+    // 重启后历史会话应出现在列表里（此前为空）
+    const listRes = await fetch(`${base2}/v1/rpc/session.list`, {
+      method: 'POST',
+      headers: headers2,
+      body: JSON.stringify({ id: 'r-restart-list', method: 'session.list', params: {} }),
+    });
+    const listBody = await listRes.json();
+    const ids = listBody.ok ? listBody.result.map((x) => x.id) : [];
+    if (ids.includes(s1.id)) ok(`重启后 session.list 仍列出历史会话（共 ${ids.length} 条）`);
+    else bad('重启后 session.list 未列出历史会话（前端会显示为空）');
+  } catch (err) {
+    bad(`重启验证失败：${err.message}`);
   }
 
   log('协议层验证完成');
