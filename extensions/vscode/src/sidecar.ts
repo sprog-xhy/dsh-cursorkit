@@ -17,6 +17,7 @@ import {
   buildProfilePackage,
   buildProfilePatch,
   profileDir,
+  profilePackageNeedsRepair,
   profilePatchNeedsRepair,
   syncProfileDeps,
   RUNTIME_RELATIVE,
@@ -231,7 +232,16 @@ export class SidecarManager implements vscode.Disposable {
     const hostPath = hostDir;
     const protocolPath = protocolDir;
 
-    const needPkg = !existsSync(pkgPath);
+    let needPkg = !existsSync(pkgPath);
+    if (!needPkg) {
+      // 依赖路径可能失效（先 F5 后装 vsix / 仓库被移动）→ 需要重写
+      try {
+        needPkg = profilePackageNeedsRepair(readFileSync(pkgPath, 'utf8'), hostPath, protocolPath);
+        if (needPkg) this.log('profile package.json 依赖路径已变化，重写');
+      } catch {
+        needPkg = true;
+      }
+    }
     let needPatch = !existsSync(patchPath);
     if (!needPatch) {
       try {

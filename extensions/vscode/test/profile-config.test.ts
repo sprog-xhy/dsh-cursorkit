@@ -8,6 +8,7 @@ import {
   buildProfilePatch,
   buildProfilePackage,
   profilePatchNeedsRepair,
+  profilePackageNeedsRepair,
   profileDir,
   DEFAULT_DSH_HOME,
   INSTALLED_HOST_REL,
@@ -130,5 +131,36 @@ describe('installNeeded / fingerprintOf（P0：profile 依赖快照过期）', (
   it('INSTALLED_HOST_REL 指向 profile 内 host-dsh 的 package.json', () => {
     expect(INSTALLED_HOST_REL).toContain('node_modules');
     expect(INSTALLED_HOST_REL.endsWith('host-dsh/package.json')).toBe(true);
+  });
+});
+
+describe('profilePackageNeedsRepair（依赖路径变化）', () => {
+  const HOST = '/opt/ext/bundled/host-dsh';
+  const PROTO = '/opt/ext/bundled/protocol';
+  const good = JSON.stringify({
+    name: 'dsh-profile-cursorkit',
+    dependencies: {
+      '@dsh-cursorkit/host-dsh': `file:${HOST}`,
+      '@dsh-cursorkit/protocol': `file:${PROTO}`,
+    },
+    dsh: { profile: { bundles: ['@deepseek-ai/dsh-base'] } },
+  });
+
+  it('路径与 bundle 均正确 → 不需重写', () => {
+    expect(profilePackageNeedsRepair(good, HOST, PROTO)).toBe(false);
+  });
+
+  it('指向仓库旧路径（先 F5 后装 vsix）→ 需重写', () => {
+    const stale = good.replace(`file:${HOST}`, 'file:/home/u/repo/packages/host-dsh');
+    expect(profilePackageNeedsRepair(stale, HOST, PROTO)).toBe(true);
+  });
+
+  it('缺少 bundles 声明 → 需重写', () => {
+    const noBundles = JSON.stringify({ dependencies: JSON.parse(good).dependencies });
+    expect(profilePackageNeedsRepair(noBundles, HOST, PROTO)).toBe(true);
+  });
+
+  it('JSON 损坏 → 需重写', () => {
+    expect(profilePackageNeedsRepair('{bad', HOST, PROTO)).toBe(true);
   });
 });

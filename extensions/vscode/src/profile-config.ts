@@ -240,3 +240,30 @@ export async function syncProfileDeps(opts: {
   }
   return { installed: true, fingerprint };
 }
+
+/**
+ * profile 的 package.json 是否需要重写。
+ *
+ * 场景：先用 F5（依赖指向仓库 packages/），之后装 vsix（依赖应指向内置 bundled/）
+ * 或仓库被移动 —— 旧路径失效时必须重写，否则 pnpm install 装的是错误副本。
+ */
+export function profilePackageNeedsRepair(
+  existingJson: string,
+  hostDir: string,
+  protocolDir: string,
+): boolean {
+  let parsed: { dependencies?: Record<string, string> };
+  try {
+    parsed = JSON.parse(existingJson) as { dependencies?: Record<string, string> };
+  } catch {
+    return true;
+  }
+  const deps = parsed.dependencies ?? {};
+  const wantHost = `file:${hostDir}`;
+  const wantProtocol = `file:${protocolDir}`;
+  if (deps['@dsh-cursorkit/host-dsh'] !== wantHost) return true;
+  if (deps['@dsh-cursorkit/protocol'] !== wantProtocol) return true;
+  const bundles = (parsed as { dsh?: { profile?: { bundles?: string[] } } }).dsh?.profile?.bundles ?? [];
+  if (!bundles.includes('@deepseek-ai/dsh-base')) return true;
+  return false;
+}
