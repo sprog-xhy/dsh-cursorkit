@@ -50,8 +50,7 @@ const CAPABILITY_GATE: Partial<Record<CkpMethodName, string>> = {
   'mcp.list': 'mcp.list',
   'mcp.add': 'mcp.add',
   'mcp.remove': 'mcp.remove',
-  'model.list': 'models.list',
-  'model.select': 'models.select',
+  // model.list/select 由 host 自己实现（读 settings.yaml），不 gate
 };
 
 export class Router {
