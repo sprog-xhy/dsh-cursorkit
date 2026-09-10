@@ -101,6 +101,18 @@ export class ChatController {
 
   /** 处理来自某个宿主的消息。 */
   async handleMessage(msg: { type: string; [k: string]: unknown }, host: ChatHost): Promise<void> {
+    // webview 自报（bootstrap 注入）：白屏/报错的第一手证据
+    if (msg.type === 'webviewError') {
+      activityLog(
+        `webview | kind=${String(msg.kind)} host=${host.hostId} msg=${String(msg.message)}` +
+          (msg.extra ? ` extra=${String(msg.extra).slice(0, 300)}` : ''),
+      );
+      return;
+    }
+    if (msg.type === 'webviewReady') {
+      activityLog(`webview-ready | host=${host.hostId} nodes=${String(msg.nodes)}`);
+      return;
+    }
     switch (msg.type) {
       case 'send':
         return this.onSend(msg);

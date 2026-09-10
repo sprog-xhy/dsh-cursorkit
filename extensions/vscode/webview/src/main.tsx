@@ -449,10 +449,30 @@ declare function acquireVsCodeApi(): {
   setState(state: unknown): void;
 };
 
-const vscodeApi = acquireVsCodeApi();
+declare global {
+  interface Window {
+    /** 由 HTML bootstrap 注入（VSCode 只允许 acquireVsCodeApi 调用一次）。 */
+    __dshApi?: { postMessage(msg: unknown): void; getState(): unknown; setState(state: unknown): void };
+  }
+}
+
+const vscodeApi = window.__dshApi ?? acquireVsCodeApi();
 
 function post(msg: unknown): void {
   vscodeApi.postMessage(msg);
 }
 
 createRoot(document.getElementById('root')!).render(<App />);
+
+// 渲染完成回报（扩展侧写入 activity.log）→ 白屏时能立刻区分"没跑起来"与"跑了但没内容"
+queueMicrotask(() => {
+  try {
+    const root = document.getElementById('root');
+    vscodeApi.postMessage({
+      type: 'webviewReady',
+      nodes: root ? root.querySelectorAll('*').length : -1,
+    });
+  } catch {
+    /* ignore */
+  }
+});
