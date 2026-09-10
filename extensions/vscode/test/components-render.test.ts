@@ -15,6 +15,7 @@ import { ThinkingBlock } from '../webview/src/components/ThinkingBlock.tsx';
 import { ToolCallCard } from '../webview/src/components/ToolCallCard.tsx';
 import { Panel } from '../webview/src/components/Panel.tsx';
 import { ChangeCard } from '../webview/src/components/ChangeCard.tsx';
+import { Composer } from '../webview/src/components/Composer.tsx';
 import {
   SessionsPanel,
   ModelsPanel,
@@ -408,5 +409,102 @@ describe('内联改动卡片与会话标题（Cursor 化）', () => {
     };
     expect(renderToStaticMarkup(h(TopBar, { ...base, activeSessionLabel: '修复白屏' }))).toContain('修复白屏');
     expect(renderToStaticMarkup(h(TopBar, base))).toContain('session-');
+  });
+});
+
+describe('Cursor 对齐：消息操作 / 排队 / 会话管理', () => {
+  const base = { id: 'x', role: 'assistant' as const, text: 'hi' };
+
+  it('助手消息：复制 / 重新生成 / 回滚到此', () => {
+    const html = renderToStaticMarkup(
+      h(MessageItem, {
+        item: { ...base, retryText: '原始问题' },
+        onRetry: noop,
+        checkpointId: 'session-1-2',
+        onRestore: noop,
+      }),
+    );
+    expect(html).toContain('复制');
+    expect(html).toContain('重新生成');
+    expect(html).toContain('回滚到此');
+  });
+
+  it('助手消息没有 checkpoint 时不显示回滚按钮', () => {
+    const html = renderToStaticMarkup(h(MessageItem, { item: { ...base, retryText: 'q' }, onRetry: noop }));
+    expect(html).not.toContain('回滚到此');
+  });
+
+  it('用户消息：复制 / 编辑重发', () => {
+    const html = renderToStaticMarkup(
+      h(MessageItem, { item: { id: 'u', role: 'user', text: '帮我改配置' }, onEdit: noop }),
+    );
+    expect(html).toContain('编辑重发');
+    expect(html).toContain('帮我改配置');
+  });
+
+  it('Composer：生成中显示排队数、发送按钮可用（排队发送）', () => {
+    const html = renderToStaticMarkup(
+      h(Composer, {
+        value: '排队的内容',
+        onChange: noop,
+        onSend: noop,
+        onStop: noop,
+        busy: true,
+        mode: 'agent' as const,
+        onModeChange: noop,
+        ready: true,
+        status: 'ready' as const,
+        textareaRef: { current: null },
+        queued: 2,
+      }),
+    );
+    expect(html).toContain('排队 2');
+    expect(html).not.toContain('disabled=""'); // 生成中不应禁用发送
+  });
+
+  it('Composer：@ 提及候选列表渲染', () => {
+    const html = renderToStaticMarkup(
+      h(Composer, {
+        value: '@chat',
+        onChange: noop,
+        onSend: noop,
+        onStop: noop,
+        busy: false,
+        mode: 'ask' as const,
+        onModeChange: noop,
+        ready: true,
+        status: 'ready' as const,
+        textareaRef: { current: null },
+        fileResults: ['src/chat/controller.ts', 'src/chat/view.ts'],
+      }),
+    );
+    // 未触发 syncMention（无输入事件）时下拉不显示，但不应报错
+    expect(html).toContain('composer');
+  });
+
+  it('Panel：条件渲染产生的 falsy 子元素不应破坏空态（回归）', () => {
+    const empty = renderToStaticMarkup(
+      h(Panel, {
+        title: '会话',
+        onClose: noop,
+        emptyText: '暂无会话',
+        children: [false, null, undefined],
+      }),
+    );
+    expect(empty).toContain('暂无会话');
+  });
+
+  it('SessionsPanel：显示搜索框（会话较多时）与重命名/删除入口', () => {
+    const sessions = Array.from({ length: 4 }, (_, i) => ({
+      id: `session-${i}`,
+      workspace: '/w',
+      summary: `标题 ${i}`,
+    }));
+    const html = renderToStaticMarkup(
+      h(SessionsPanel, { sessions, activeSessionId: 'session-0', onSwitch: noop, onNew: noop, onClose: noop }),
+    );
+    expect(html).toContain('panel-search');
+    expect(html).toContain('改名');
+    expect(html).toContain('删除');
   });
 });

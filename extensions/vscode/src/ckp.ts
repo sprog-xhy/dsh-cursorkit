@@ -195,6 +195,18 @@ export class CkpService {
     return this.client.sessionList();
   }
 
+  /** 重命名会话（用户标题优先，不被自动标题覆盖）。 */
+  async sessionRename(id: string, title: string): Promise<void> {
+    if (!this.client) throw new Error('sidecar 未就绪');
+    await this.client.sessionRename(id, title);
+  }
+
+  /** 删除会话（deleteFiles 时一并删除磁盘日志）。 */
+  async sessionDelete(id: string, deleteFiles = false): Promise<{ removedFiles: boolean }> {
+    if (!this.client) throw new Error('sidecar 未就绪');
+    return await this.client.sessionDelete(id, deleteFiles);
+  }
+
   async listModels() {
     if (!this.client) return [];
     return this.client.modelList();

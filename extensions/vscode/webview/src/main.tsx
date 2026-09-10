@@ -28,7 +28,7 @@ import type {
 } from './types.ts';
 import { fullModelName } from './types.ts';
 import { TopBar } from './components/TopBar.tsx';
-import { MessageList } from './components/MessageList.tsx';
+import { MessageList, groupByTurn } from './components/MessageList.tsx';
 import { Composer } from './components/Composer.tsx';
 import {
   SessionsPanel,
@@ -74,6 +74,12 @@ interface CheckpointListMsg {
   sessionId: string;
   checkpoints: CheckpointInfo[];
 }
+interface FilesResultMsg {
+  type: 'files.result';
+  query: string;
+  files: string[];
+  error?: string;
+}
 interface SessionListMsg {
   type: 'session.list';
   sessions: SessionInfo[];
@@ -93,6 +99,7 @@ interface SettingsGetMsg {
   config: SettingsData['config'];
 }
 type Inbound =
+  | FilesResultMsg
   | SidecarStatusMsg
   | InitMsg
   | EventMsg
@@ -125,6 +132,14 @@ function App(): JSX.Element {
   const [settingsData, setSettingsData] = useState<SettingsData | null>(null);
   /** sessionId → 标题（来自 session.list 与 session.title 事件）。 */
   const [titles, setTitles] = useState<Record<string, string>>({});
+  /** @ 提及候选（来自扩展的文件搜索）。 */
+  const [fileResults, setFileResults] = useState<string[]>([]);
+  /** 生成中排队的消息（回复结束后自动发出）。 */
+  const [queue, setQueue] = useState<{ text: string; mode: ChatMode }[]>([]);
+  /** 删除会话时是否连带删除磁盘日志（用户选择）。 */
+  const [deleteFiles, setDeleteFiles] = useState(false);
+  /** 最近一条用户输入（供"重新生成"）。 */
+  const lastUserRef = useRef('');
   const [panel, setPanel] = useState<PanelKind>(null);
   const [dismissedHint, setDismissedHint] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -170,6 +185,10 @@ function App(): JSX.Element {
         case 'checkpoint.list':
           setCheckpoints(msg.checkpoints);
           break;
+        case 'files.result': {
+          setFileResults(Array.isArray((msg as { files?: string[] }).files) ? ((msg as { files?: string[] }).files as string[]) : []);
+          break;
+        }
         case 'session.list': {
           setSessions(msg.sessions);
           setTitles((prev) => {
@@ -238,6 +257,7 @@ function App(): JSX.Element {
     switch (evt.type) {
       case 'message.user':
         // 用户消息自身无轮次标记（dsh 的 user/message 不带 turn）→ 独立成组
+        lastUserRef.current = evt.text;
         pushItem({ id: `u-${evt.ts}`, role: 'user', text: evt.text });
         setBusy(true);
         break;
@@ -248,12 +268,24 @@ function App(): JSX.Element {
           const last = prev[prev.length - 1];
           if (last && last.id === id) {
             const copy = [...prev];
-            copy[copy.length - 1] = { ...last, text: last.text + evt.text };
+            copy[copy.length - 1] = {
+              ...last,
+              text: last.text + evt.text,
+              retryText: last.retryText || lastUserRef.current,
+            };
             return copy;
           }
           return [
             ...prev,
-            { id, role: 'assistant', text: evt.text, ts: evt.ts, turn: evt.turn, step: evt.step },
+            {
+              id,
+              role: 'assistant',
+              text: evt.text,
+              ts: evt.ts,
+              turn: evt.turn,
+              step: evt.step,
+              retryText: lastUserRef.current,
+            },
           ];
         });
         break;
@@ -265,7 +297,11 @@ function App(): JSX.Element {
           const last = prev[prev.length - 1];
           if (last && last.id === id) {
             const copy = [...prev];
-            copy[copy.length - 1] = { ...last, text: last.text + evt.text };
+            copy[copy.length - 1] = {
+              ...last,
+              text: last.text + evt.text,
+              retryText: last.retryText || lastUserRef.current,
+            };
             return copy;
           }
           return [
@@ -330,6 +366,7 @@ function App(): JSX.Element {
       case 'message.done':
       case 'done':
         setBusy(false);
+        flushQueue();
         break;
       case 'error':
         pushItem({ id: `err-${evt.ts}`, role: 'system', text: evt.message, level: 'error' });
@@ -337,6 +374,7 @@ function App(): JSX.Element {
         break;
       case 'cancelled':
         setBusy(false);
+        flushQueue();
         pushItem({ id: `canc-${evt.ts}`, role: 'system', text: '已停止', level: 'stopped' });
         break;
       default:
@@ -347,10 +385,46 @@ function App(): JSX.Element {
   function send(): void {
     const text = input.trim();
     if (!text) return;
+    if (busy) {
+      // 生成中 → 排队（Cursor 行为：当前回复结束后自动发出）
+      setQueue((q) => [...q, { text, mode }]);
+      pushItem({ id: `q-${Date.now()}`, role: 'system', text: `已排队（第 ${queue.length + 1} 条）` });
+      setInput('');
+      return;
+    }
+    lastUserRef.current = text;
     post({ type: 'send', text, mode, model });
     setInput('');
     inputRef.current?.focus();
   }
+
+  /** 回复结束 → 发送排队中的下一条。 */
+  function flushQueue(): void {
+    setQueue((q) => {
+      if (q.length === 0) return q;
+      const [next, ...rest] = q;
+      // 用最新输入框内容不改动用户正在编辑的文本：直接发送排队的文本
+      setTimeout(() => post({ type: 'send', text: next.text, mode: next.mode, model }), 0);
+      return rest;
+    });
+  }
+
+  /**
+   * 每条助手消息组 → 可回滚的 checkpoint。
+   * 语义：取"该消息之后最早出现的 checkpoint"（回滚即撤销其后的所有改动）。
+   */
+  const checkpointByGroup = useMemo(() => {
+    const map: Record<string, string> = {};
+    const groups = groupByTurn(items);
+    for (const g of groups) {
+      const ts = g.items[g.items.length - 1]?.ts ?? 0;
+      const after = checkpoints
+        .filter((c) => c.createdAt >= ts)
+        .sort((a, b) => a.createdAt - b.createdAt)[0];
+      if (after) map[g.key] = after.id;
+    }
+    return map;
+  }, [items, checkpoints]);
 
   const modelLabel = useMemo(() => model.split('/').pop() || model, [model]);
 
@@ -384,6 +458,10 @@ function App(): JSX.Element {
             post({ type: 'newSession', model });
             setPanel(null);
           }}
+          onRename={(id, title) => post({ type: 'session.rename', sessionId: id, title })}
+          onDelete={(id, withFiles) => post({ type: 'session.delete', sessionId: id, deleteFiles: withFiles })}
+          deleteFiles={deleteFiles}
+          onToggleDeleteFiles={setDeleteFiles}
           onClose={() => setPanel(null)}
         />
       )}
@@ -441,6 +519,19 @@ function App(): JSX.Element {
         onDiff={(path) => post({ type: 'review.diff', path })}
         onRevert={(path) => post({ type: 'review.reject', path })}
         onOpen={(path) => post({ type: 'review.open', path })}
+        onRetry={(text) => {
+          lastUserRef.current = text;
+          post({ type: 'send', text, mode, model });
+        }}
+        onEdit={(text) => {
+          setInput(text);
+          inputRef.current?.focus();
+        }}
+        checkpointByGroup={checkpointByGroup}
+        onRestore={(id) => {
+          post({ type: 'checkpoint.restore', checkpointId: id });
+          pushItem({ id: `rs-${Date.now()}`, role: 'system', text: '正在回滚到该 checkpoint…' });
+        }}
       />
 
       {!dismissedHint && items.length === 0 && (
@@ -478,6 +569,9 @@ function App(): JSX.Element {
         busy={busy}
         mode={mode}
         onModeChange={setMode}
+        onSearchFiles={(q) => post({ type: 'files.search', query: q })}
+        fileResults={fileResults}
+        queued={queue.length}
         ready={connected === 'ready'}
         status={connected}
         textareaRef={inputRef}

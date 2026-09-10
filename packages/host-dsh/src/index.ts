@@ -266,6 +266,7 @@ export function apply(ctx: HostCtx, config: HostConfig = {}): void {
           agents: agentsCompat(ctx),
           appVersion: report.dshVersion,
           sessionIndex,
+          dshHome,
         });
 
         if (disposed) {

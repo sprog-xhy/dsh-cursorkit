@@ -36,6 +36,13 @@ function classesInSource(src) {
   for (const m of src.matchAll(/className=\{`([^`]+)`\}/g)) {
     const body = m[1];
     body.replace(/\$\{([^}]*)\}/g, (_all, expr) => {
+      // 形如 `md-h${level}` 的动态后缀：记为「前缀」而不是类名，
+      // 只要 CSS 里有同前缀的类就算已覆盖（否则会误报 .md-h${level}）
+      if (/^[A-Za-z0-9_-]+$/.test(expr.trim()) && /[A-Za-z0-9_-]$/.test(body.slice(0, _all.length - expr.length - 3 + 0) || '')) {
+        const before = body.slice(0, body.indexOf(_all));
+        const seg = before.split(/[\s'"]+/).pop() ?? '';
+        if (seg) found.add(`~prefix:${seg}`);
+      }
       // 去掉 cls('...') 这类辅助调用（其参数是面板名，不是类名）
       const cleaned = expr.replace(/\bcls\('[^']*'\)/g, ' ');
       for (const lit of cleaned.matchAll(/'([^']*)'/g)) {
@@ -49,7 +56,14 @@ function classesInSource(src) {
   for (const m of src.matchAll(/class="([^"]+)"/g)) {
     m[1].split(/\s+/).filter(Boolean).forEach((c) => found.add(c));
   }
-  return found;
+  // class="md-h${level}" 这类动态拼接 → 记为前缀（CSS 里同前缀即视为已覆盖）
+  const out = new Set();
+  for (const c of found) {
+    const dyn = /^(.*?)\$\{/.exec(c);
+    if (dyn && dyn[1]) out.add(`~prefix:${dyn[1]}`);
+    else out.add(c.replace(/\$\{[^}]*\}/g, ''));
+  }
+  return out;
 }
 
 /** 从 CSS 里提取类名（先去掉注释，避免注释里的文件名被当成类名）。 */
@@ -74,9 +88,16 @@ for (const file of walk(WEBVIEW)) {
 const dynamicPrefixes = ['status-', 'item-', 'msg-', 'tool-', 'mode-', 'tb-', 'panel-', 'stat-'];
 const isDynamicCandidate = (c) => dynamicPrefixes.some((p) => c.startsWith(p)) === false;
 
-const usedNoStyle = [...used].filter((c) => !defined.has(c)).filter(isDynamicCandidate).sort();
+// 动态模板类名（如 md-h${level}）记为 ~prefix:xxx：CSS 里有同前缀的类即视为已覆盖
+const tplPrefixes = [...used].filter((c) => c.startsWith('~prefix:')).map((c) => c.slice(8));
+const usedNoStyle = [...used]
+  .filter((c) => !c.startsWith('~prefix:'))
+  .filter((c) => !defined.has(c))
+  .filter((c) => !tplPrefixes.some((p) => [...defined].some((d) => d.startsWith(p))))
+  .filter(isDynamicCandidate)
+  .sort();
 const styleNoUse = [...defined]
-  .filter((c) => !used.has(c))
+  .filter((c) => !used.has(c) && !tplPrefixes.some((p) => c.startsWith(p)))
   .filter((c) => !c.startsWith('vscode-'))
   .filter((c) => !c.startsWith('ds-'))
   .filter((c) => !dynamicPrefixes.some((p) => c.startsWith(p)))

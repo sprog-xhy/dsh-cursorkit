@@ -11,6 +11,13 @@ import { fullModelName } from '../types.ts';
 import { Panel } from './Panel.tsx';
 
 export interface SessionsPanelProps {
+  /** 重命名会话。 */
+  onRename?: (id: string, title: string) => void;
+  /** 删除会话（deleteFiles 时同时删磁盘日志）。 */
+  onDelete?: (id: string, deleteFiles: boolean) => void;
+  /** 是否连同磁盘日志一起删除（记忆用户选择）。 */
+  deleteFiles?: boolean;
+  onToggleDeleteFiles?: (v: boolean) => void;
   sessions: SessionInfo[];
   activeSessionId: string;
   onSwitch: (id: string) => void;
@@ -20,19 +27,95 @@ export interface SessionsPanelProps {
 
 export function SessionsPanel(props: SessionsPanelProps): JSX.Element {
   const { sessions, activeSessionId, onSwitch, onNew, onClose } = props;
+  const [query, setQuery] = React.useState('');
+  const [editing, setEditing] = React.useState<string | null>(null);
+  const [draft, setDraft] = React.useState('');
+  const [confirming, setConfirming] = React.useState<string | null>(null);
+
+  const label = (s: { id: string; summary?: string }): string => s.summary?.trim() || s.id.slice(0, 14);
+  const q = query.trim().toLowerCase();
+  const shown = q
+    ? sessions.filter((s) => label(s).toLowerCase().includes(q) || s.id.toLowerCase().includes(q))
+    : sessions;
+
+  const startRename = (s: { id: string; summary?: string }): void => {
+    setEditing(s.id);
+    setDraft(s.summary?.trim() || '');
+  };
+  const commitRename = (id: string): void => {
+    const title = draft.trim();
+    setEditing(null);
+    if (title) props.onRename?.(id, title);
+  };
+
   return (
     <Panel
       title={`会话${sessions.length ? ` · ${sessions.length}` : ''}`}
       onClose={onClose}
-      emptyText="暂无会话（点“＋”新建）"
+      emptyText={q ? '没有匹配的会话' : '暂无会话（点“＋”新建）'}
       extra={
         <button className="panel-btn" onClick={onNew}>
           ＋ 新建
         </button>
       }
     >
-      {sessions.map((s) => {
+      {sessions.length > 3 ? (
+        <input
+          className="panel-search"
+          placeholder="搜索会话标题 / id…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      ) : null}
+      {shown.map((s) => {
         const active = s.id === activeSessionId;
+        if (editing === s.id) {
+          return (
+            <div key={s.id} className="panel-row editing">
+              <input
+                className="panel-rename"
+                autoFocus
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commitRename(s.id);
+                  if (e.key === 'Escape') setEditing(null);
+                }}
+                onBlur={() => commitRename(s.id)}
+                placeholder="输入会话标题"
+              />
+            </div>
+          );
+        }
+        if (confirming === s.id) {
+          return (
+            <div key={s.id} className="panel-row confirming">
+              <span className="panel-row-main">删除该会话？</span>
+              <label className="panel-check" title="同时删除磁盘上的会话日志（不可恢复）">
+                <input
+                  type="checkbox"
+                  checked={Boolean(props.deleteFiles)}
+                  onChange={(e) => props.onToggleDeleteFiles?.(e.target.checked)}
+                />
+                删日志
+              </label>
+              <span className="panel-row-actions">
+                <button
+                  className="panel-btn danger"
+                  onClick={() => {
+                    setConfirming(null);
+                    props.onDelete?.(s.id, Boolean(props.deleteFiles));
+                  }}
+                >
+                  删除
+                </button>
+                <button className="panel-btn" onClick={() => setConfirming(null)}>
+                  取消
+                </button>
+              </span>
+            </div>
+          );
+        }
         return (
           <div
             key={s.id}
@@ -42,10 +125,32 @@ export function SessionsPanel(props: SessionsPanelProps): JSX.Element {
           >
             <span className={`panel-dot ${active ? 'on' : ''}`} />
             <span className="panel-row-main" title={s.id}>
-              {s.summary?.trim() || s.id.slice(0, 14)}
+              {label(s)}
             </span>
             <span className="panel-row-sub">{s.workspace.split('/').pop()}</span>
             {relTime(s.createdAt) && <span className="panel-row-mono">{relTime(s.createdAt)}</span>}
+            <span className="panel-row-actions">
+              <button
+                className="panel-icon-btn"
+                title="重命名"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  startRename(s);
+                }}
+              >
+                改名
+              </button>
+              <button
+                className="panel-icon-btn danger"
+                title="删除会话"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setConfirming(s.id);
+                }}
+              >
+                删除
+              </button>
+            </span>
           </div>
         );
       })}

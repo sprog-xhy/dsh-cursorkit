@@ -32,6 +32,8 @@ export interface SessionIndexEntry {
   createdAt: number;
   /** 会话标题（dsh 的 session/title 事件；用于会话列表/顶栏展示）。 */
   title?: string;
+  /** 标题来源：user=用户手动重命名（不被自动标题覆盖）。 */
+  titleSource?: 'user' | 'auto';
 }
 
 export interface SessionIndexOptions {
@@ -63,6 +65,9 @@ export class SessionIndex {
           workspace: typeof v.workspace === 'string' ? v.workspace : '',
           createdAt: typeof v.createdAt === 'number' ? v.createdAt : Date.now(),
           ...(typeof v.title === 'string' && v.title ? { title: v.title } : {}),
+          ...(v.titleSource === 'user' || v.titleSource === 'auto'
+            ? { titleSource: v.titleSource }
+            : {}),
         });
       }
     } catch {
@@ -83,13 +88,22 @@ export class SessionIndex {
    * 记录/更新会话标题（dsh 的 session/title）。
    * 索引里没有该会话时创建只有标题的条目（模型/工作区留空）。
    */
-  setTitle(id: string, title: string): void {
+  setTitle(id: string, title: string, source: 'user' | 'auto' = 'auto'): void {
     const cur = this.map.get(id);
+    // 用户重命名过的标题不被自动标题覆盖（dsh 的标题可能晚到）
+    if (cur?.titleSource === 'user' && source === 'auto') return;
     const next: SessionIndexEntry = cur
-      ? { ...cur, title }
-      : { model: '', workspace: '', createdAt: Date.now(), title };
+      ? { ...cur, title, titleSource: source }
+      : { model: '', workspace: '', createdAt: Date.now(), title, titleSource: source };
     this.map.set(id, next);
     this.scheduleFlush();
+  }
+
+  /** 移除条目（会话删除）。 */
+  remove(id: string): boolean {
+    const had = this.map.delete(id);
+    if (had) this.scheduleFlush();
+    return had;
   }
 
   /** 仅取标题。 */

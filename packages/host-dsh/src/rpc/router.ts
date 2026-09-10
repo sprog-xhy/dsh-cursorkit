@@ -11,7 +11,8 @@ import {
   type ResultOf,
 } from '@dsh-cursorkit/protocol';
 import { readFile } from 'node:fs/promises';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { readdir, rm } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
 import type { ApprovalBridge } from '../bridge/approval-bridge.ts';
 import type { CapabilityReport } from '../capability.ts';
@@ -36,14 +37,23 @@ export interface RouterServices {
   capabilities: CapabilityReport;
   dshVersion: string;
   /** 会话索引（落盘；重启后仍可列出/回读历史会话）。 */
+  /** DSH_HOME（用于定位持久化会话日志）。 */
+  dshHome?: string;
   sessionIndex?: {
     get(id: string):
-      | { model: string; workspace: string; createdAt: number; title?: string }
+      | {
+          model: string;
+          workspace: string;
+          createdAt: number;
+          title?: string;
+          titleSource?: 'user' | 'auto';
+        }
       | undefined;
     modelOf(id: string): string | undefined;
     /** 会话标题（dsh session/title 捕获）。 */
     titleOf?(id: string): string | undefined;
-    setTitle?(id: string, title: string): void;
+    setTitle?(id: string, title: string, source?: 'user' | 'auto'): void;
+    remove?(id: string): boolean;
     set(id: string, entry: { model: string; workspace: string; createdAt: number }): void;
     all(): [string, { model: string; workspace: string; createdAt: number; title?: string }][];
   };
@@ -438,6 +448,37 @@ export class Router {
       enabled: true,
     }));
     this.register('mcp.remove', () => undefined);
+    /**
+     * 重命名会话（用户自定义标题，标记 titleSource=user 以免被自动标题覆盖）。
+     */
+    this.register('session.rename', async (params) => {
+      const title = cleanSessionTitle(params.title);
+      if (!title) throw new CkpError('INVALID_PARAMS', '标题不能为空');
+      if (!svc.sessionIndex?.setTitle) {
+        throw new CkpError('CAPABILITY_MISSING', undefined, ['sessionIndex']);
+      }
+      svc.sessionIndex.setTitle(params.id, title, 'user');
+      return { id: params.id, title };
+    });
+
+    /**
+     * 删除会话：先从索引移除；`deleteFiles` 时一并删除磁盘日志。
+     * 正在运行的会话拒绝删除（先停止/切换），避免边写边删。
+     */
+    this.register('session.delete', async (params) => {
+      const live = svc.sessions.get(params.id);
+      if (live) {
+        throw new CkpError('SESSION_BUSY', '会话正在运行，请先停止或切换到其它会话再删除');
+      }
+      svc.sessionIndex?.remove?.(params.id);
+      let removedFiles = false;
+      if (params.deleteFiles) {
+        const entry = svc.sessionIndex?.get?.(params.id);
+        removedFiles = await deleteSessionFiles(svc, params.id, entry?.workspace);
+      }
+      return { id: params.id, removedFiles };
+    });
+
     this.register('checkpoint.list', async (params) => {
       const s = svc.sessions.get(params.sessionId);
       const workspace = s?.header?.cwd;
@@ -638,6 +679,34 @@ export function deriveSessionTitle(events: readonly unknown[]): string | undefin
     }
   }
   return firstUser || undefined;
+}
+
+/**
+ * 删除某个会话在磁盘上的持久化日志（`sessions/<ws>/<id>/`）。
+ * 路径限定在 DSH_HOME 的 sessions 目录内，避免误删。
+ */
+async function deleteSessionFiles(
+  svc: RouterServices,
+  sessionId: string,
+  workspace?: string,
+): Promise<boolean> {
+  const base = svc.dshHome ? resolve(svc.dshHome, 'sessions') : null;
+  if (!base) return false;
+  try {
+    const wsDirs = await readdir(base);
+    for (const ws of wsDirs) {
+      const target = resolve(base, ws, sessionId);
+      if (!target.startsWith(resolve(base, ws))) continue; // 防路径穿越
+      if (existsSync(target)) {
+        await rm(target, { recursive: true, force: true });
+        return true;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  void workspace;
+  return false;
 }
 
 export function parseModelRef(ref?: string): { provider?: string; model: string; full: string } {

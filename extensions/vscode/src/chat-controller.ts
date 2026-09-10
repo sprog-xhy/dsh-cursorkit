@@ -9,7 +9,12 @@
 import * as vscode from 'vscode';
 import type { CkpService } from './ckp.ts';
 import type { SidecarManager } from './sidecar.ts';
-import { buildInjectedContext, formatSelectionBlock, currentWorkspace } from './ide-bridge.ts';
+import {
+  buildInjectedContext,
+  formatSelectionBlock,
+  currentWorkspace,
+  searchWorkspaceFiles,
+} from './ide-bridge.ts';
 import { ChangeTracker, rejectChange, resolveConflict, type FileChangeEvent } from './review.ts';
 import { loadRules, rulesToPrompt, rulesFingerprint } from './rules.ts';
 import type { VirtualDocProvider } from './virtual-docs.ts';
@@ -98,6 +103,17 @@ export class ChatController {
     return this.extensionContext.extensionUri;
   }
 
+  /** 刷新会话列表并广播（切换/新建/重命名/删除后调用）。 */
+  async refreshSessions(): Promise<void> {
+    if (!this.ckp.ready) return;
+    try {
+      const sessions = await this.ckp.listSessions();
+      this.broadcast({ type: 'session.list', sessions, activeSessionId: this.ckp.sessionId ?? '' });
+    } catch {
+      /* 列表刷新失败不致命 */
+    }
+  }
+
   /** 向所有宿主广播。 */
   broadcast(msg: unknown): void {
     const m = msg as { type?: string; message?: string };
@@ -144,6 +160,48 @@ export class ChatController {
         return;
       case 'newSession':
         return this.onNewSession(msg);
+      case 'files.search': {
+        const query = String(msg.query ?? '').trim();
+        try {
+          const files = await searchWorkspaceFiles(query);
+          host.post({ type: 'files.result', query, files });
+        } catch (err) {
+          host.post({ type: 'files.result', query, files: [], error: (err as Error).message });
+        }
+        return;
+      }
+
+      case 'session.rename': {
+        const id = String(msg.sessionId ?? '');
+        const title = String(msg.title ?? '').trim();
+        if (!id || !title) return;
+        try {
+          await this.ckp.sessionRename(id, title);
+          activityLog(`session-rename | ${id} → ${title}`);
+          await this.refreshSessions();
+        } catch (err) {
+          this.broadcast({ type: 'error', message: `重命名失败：${(err as Error).message}` });
+        }
+        return;
+      }
+
+      case 'session.delete': {
+        const id = String(msg.sessionId ?? '');
+        if (!id) return;
+        try {
+          const res = await this.ckp.sessionDelete(id, Boolean(msg.deleteFiles));
+          activityLog(`session-delete | ${id} files=${res.removedFiles}`);
+          this.broadcast({
+            type: 'info',
+            message: res.removedFiles ? '会话已删除（含磁盘日志）' : '会话已从列表移除',
+          });
+          await this.refreshSessions();
+        } catch (err) {
+          this.broadcast({ type: 'error', message: `删除失败：${(err as Error).message}` });
+        }
+        return;
+      }
+
       case 'session.switch': {
         const id = String(msg.sessionId ?? '');
         if (!id) return;

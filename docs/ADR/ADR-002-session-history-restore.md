@@ -56,6 +56,16 @@ dsh 侧可用能力：`ctx.agents.resume({ resumeSessionId, agentOptions })`
   且与 `seq` 语义（全局总线序号 vs 会话日志序号）纠缠，难以推理。
 - **不恢复历史，只支持新会话**：拒绝——这是功能缺失（用户的诉求是历史必须可恢复）。
 
+## 追加（Cursor 对齐批次）
+
+同一批次又加了两个会话管理方法与一个错误码（仍为向后兼容扩展）：
+
+| 新增 | 说明 |
+|---|---|
+| `session.rename { id, title }` | 用户重命名（`titleSource: 'user'`，不被 dsh 自动标题覆盖；标题会先清洗模式提示污染） |
+| `session.delete { id, deleteFiles? }` | 删除会话记录；`deleteFiles` 时一并删除 `sessions/<ws>/<id>/`；**运行中的会话拒绝删除**（`SESSION_BUSY`） |
+| 错误码 `INVALID_PARAMS` | 参数校验失败（HTTP 400） |
+
 ## 验证
 
 - 单元：`session.history` 7 项（翻译/limit/resume/NOT_FOUND/busSeq）、SSE 隔离 2 项、

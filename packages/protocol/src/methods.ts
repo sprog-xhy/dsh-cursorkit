@@ -50,6 +50,8 @@ export interface MethodParams {
   'context.get': { sessionId: string; files?: string[]; selection?: string; prompt?: string };
   /** 读取会话历史（dsh 持久化的会话日志 → CKP 事件回放）。 */
   'session.history': { id: string; limit?: number };
+  'session.rename': { id: string; title: string };
+  'session.delete': { id: string; deleteFiles?: boolean };
 }
 
 /** Per-method result types. */
@@ -92,6 +94,8 @@ export interface MethodResults {
     /** 是否因 limit 截断了更早的事件。 */
     truncated: boolean;
   };
+  'session.rename': { id: string; title: string };
+  'session.delete': { id: string; removedFiles: boolean };
   'context.get': {
     sessionId: string;
     /** 注入的文件路径列表（VSCode 相对 workspace 或绝对路径）。 */
@@ -143,6 +147,8 @@ export const CKP_METHODS: readonly CkpMethodName[] = [
   'diff.get',
   'context.get',
   'session.history',
+  'session.rename',
+  'session.delete',
 ];
 
 /** Whether a method name is a known CKP method. */

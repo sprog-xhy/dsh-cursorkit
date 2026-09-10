@@ -15,7 +15,10 @@ export interface PanelProps {
 }
 
 export function Panel({ title, onClose, children, emptyText, extra }: PanelProps): JSX.Element {
-  const hasContent = React.Children.count(children) > 0;
+  // 注意：Children.count 会把 null/false 也算成子元素（条件渲染 `cond && <X/>` 会产生 false），
+  // 导致空态永远不显示 → 用 toArray（会剔除 null/undefined/boolean）。
+  const items = React.Children.toArray(children);
+  const hasContent = items.length > 0;
   return (
     <section className="panel" aria-label={title}>
       <div className="panel-header">
@@ -28,7 +31,7 @@ export function Panel({ title, onClose, children, emptyText, extra }: PanelProps
         </button>
       </div>
       <div className="panel-body">
-        {hasContent ? children : <div className="panel-empty">{emptyText ?? '暂无内容'}</div>}
+        {hasContent ? items : <div className="panel-empty">{emptyText ?? '暂无内容'}</div>}
       </div>
     </section>
   );

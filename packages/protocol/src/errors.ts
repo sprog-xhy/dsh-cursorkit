@@ -10,6 +10,7 @@ export const CKP_ERRORS = {
   UNSUPPORTED_DSH_VERSION: 'dsh 版本不受支持',
   SESSION_NOT_FOUND: '会话不存在',
   SESSION_BUSY: '会话正在运行中',
+  INVALID_PARAMS: '请求参数无效',
   APPROVAL_TIMEOUT: '审批超时',
   APPROVAL_NOT_FOUND: '审批请求已失效',
   PERMISSION_DENIED: '权限被拒绝',

@@ -128,6 +128,16 @@ export class CkpClient {
     return this.call('session.history', limit === undefined ? { id } : { id, limit });
   }
 
+  /** 重命名会话（用户标题优先于自动标题）。 */
+  sessionRename(id: string, title: string): Promise<{ id: string; title: string }> {
+    return this.call('session.rename', { id, title });
+  }
+
+  /** 删除会话；`deleteFiles` 时一并删除磁盘日志。 */
+  sessionDelete(id: string, deleteFiles = false): Promise<{ id: string; removedFiles: boolean }> {
+    return this.call('session.delete', { id, deleteFiles });
+  }
+
   modelList(): Promise<ModelInfo[]> {
     return this.call('model.list', {});
   }

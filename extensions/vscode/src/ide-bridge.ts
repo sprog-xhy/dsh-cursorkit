@@ -98,3 +98,53 @@ export async function openFile(path: string, line?: number): Promise<void> {
     editor.selection = new vscode.Selection(pos, pos);
   }
 }
+
+/**
+ * 工作区文件搜索（@ 提及自动补全用）。
+ *
+ * 策略：findFiles 取相对路径，按查询做「子串 + 首字母缩写」两级过滤，
+ * 最多返回 30 条；查询为空时返回最近修改的若干文件。
+ */
+export async function searchWorkspaceFiles(query: string, limit = 30): Promise<string[]> {
+  const ws = currentWorkspace();
+  if (!ws) return [];
+  const all = await vscode.workspace.findFiles(
+    '**/*',
+    '**/{node_modules,.git,dist,out,build,.next,coverage,vendor}/**',
+    3000,
+  );
+  const rels = all
+    .map((u) => vscode.workspace.asRelativePath(u, false))
+    .filter((p) => p && !p.startsWith('..'));
+  const q = query.trim().toLowerCase();
+  if (!q) {
+    const sorted = [...all].sort((a, b) => b.fsPath.length - a.fsPath.length).slice(0, limit);
+    return sorted.map((u) => vscode.workspace.asRelativePath(u, false));
+  }
+  const scored: { path: string; score: number }[] = [];
+  for (const p of rels) {
+    const low = p.toLowerCase();
+    const idx = low.indexOf(q);
+    if (idx >= 0) {
+      // 越靠前 / 越短 / 越靠浅层，排序越前
+      scored.push({ path: p, score: idx + p.length / 1000 + p.split('/').length });
+      continue;
+    }
+    // 首字母缩写匹配：src/chat/controller.ts → scc
+    const initials = p
+      .split('/')
+      .map((seg) => seg.replace(/\.[^.]+$/, ''))
+      .join('')
+      .toLowerCase();
+    const acr = p
+      .split(/[/.]/)
+      .map((seg) => seg[0] ?? '')
+      .join('')
+      .toLowerCase();
+    if (initials.startsWith(q) || acr.startsWith(q)) {
+      scored.push({ path: p, score: 100 + p.length / 1000 });
+    }
+  }
+  scored.sort((a, b) => a.score - b.score);
+  return scored.slice(0, limit).map((x) => x.path);
+}

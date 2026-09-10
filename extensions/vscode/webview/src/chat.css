@@ -656,3 +656,112 @@ body {
   font-family: var(--ds-font-mono);
 }
 .msg-assistant a { color: var(--ds-accent); }
+
+/* ── @ 提及文件下拉（Cursor 式上下文补全） ─────────────── */
+.mention-pop {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 190px;
+  overflow-y: auto;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-md);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 28%);
+  z-index: 30;
+  padding: 3px;
+}
+.composer { position: relative; }
+.mention-item {
+  padding: 3px 8px;
+  border-radius: var(--ds-radius-sm);
+  font-family: var(--ds-font-mono);
+  font-size: 11.5px;
+  color: var(--ds-fg);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mention-item.active { background: var(--ds-selection); }
+
+/* ── 排队提示 ───────────────────────────────────────── */
+.queue-chip {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 9px;
+  background: var(--ds-surface-2);
+  border: 1px solid var(--ds-border-soft);
+  color: var(--ds-muted);
+  white-space: nowrap;
+}
+
+/* ── 消息级操作（复制 / 重新生成 / 编辑重发 / 回滚到此） ── */
+.msg-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 2px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.msg:hover .msg-actions,
+.msg:focus-within .msg-actions { opacity: 1; }
+.msg-user .msg-actions { justify-content: flex-end; }
+.msg-actions .msg-copy { position: static; }
+
+/* ── 会话管理（搜索 / 重命名 / 删除） ─────────────────── */
+.panel-search {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 4px;
+  padding: 3px 7px;
+  font-size: 11.5px;
+  color: var(--ds-fg);
+  background: var(--ds-surface-2);
+  border: 1px solid var(--ds-border-soft);
+  border-radius: var(--ds-radius-sm);
+}
+.panel-search:focus { outline: none; border-color: var(--ds-accent); }
+.panel-rename {
+  flex: 1;
+  padding: 2px 6px;
+  font-size: 12px;
+  color: var(--ds-fg);
+  background: var(--ds-surface-2);
+  border: 1px solid var(--ds-accent);
+  border-radius: var(--ds-radius-sm);
+}
+.panel-rename:focus { outline: none; }
+.panel-row-actions {
+  display: flex;
+  gap: 3px;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+.panel-row:hover .panel-row-actions,
+.panel-row.confirming .panel-row-actions { opacity: 1; }
+.panel-icon-btn {
+  background: transparent;
+  border: 1px solid var(--ds-border-soft);
+  color: var(--ds-muted);
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: var(--ds-radius-sm);
+  cursor: pointer;
+}
+.panel-icon-btn:hover { color: var(--ds-fg); border-color: var(--ds-border); }
+.panel-icon-btn.danger:hover { color: var(--ds-danger); border-color: var(--ds-danger); }
+.panel-check {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  color: var(--ds-muted);
+  white-space: nowrap;
+}
+
+/* 重命名中的行 / 提及路径 / 用户消息操作条 */
+.panel-row.editing { padding: 2px 4px; }
+.mention-path { display: block; }
+.msg-user .user-actions { justify-content: flex-end; }

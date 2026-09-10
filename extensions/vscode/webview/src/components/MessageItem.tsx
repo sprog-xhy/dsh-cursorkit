@@ -28,10 +28,35 @@ export interface MessageItemProps {
   onDiff?: (path: string) => void;
   onRevert?: (path: string) => void;
   onOpen?: (path: string) => void;
+  /** 重新生成这条回复（重发对应的用户消息）。 */
+  onRetry?: (text: string) => void;
+  /** 把这条用户消息载入输入框编辑后重发。 */
+  onEdit?: (text: string) => void;
+  /** 该轮对应的 checkpoint id（存在时显示"回滚到此"）。 */
+  checkpointId?: string;
+  onRestore?: (checkpointId: string) => void;
 }
 
-export function MessageItem({ item, onDiff, onRevert, onOpen }: MessageItemProps): JSX.Element {
+export function MessageItem({
+  item,
+  onDiff,
+  onRevert,
+  onOpen,
+  onRetry,
+  onEdit,
+  checkpointId,
+  onRestore,
+}: MessageItemProps): JSX.Element {
   const [copied, setCopied] = useState(false);
+  const copyText = (): void => {
+    void navigator.clipboard?.writeText(item.text).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1200);
+      },
+      () => undefined,
+    );
+  };
 
   if (item.role === 'change') {
     return (
@@ -66,21 +91,28 @@ export function MessageItem({ item, onDiff, onRevert, onOpen }: MessageItemProps
   }
 
   if (item.role === 'assistant') {
-    const copy = (): void => {
-      void navigator.clipboard?.writeText(item.text).then(
-        () => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1200);
-        },
-        () => undefined,
-      );
-    };
     return (
       <div className="msg msg-assistant">
         <div className="msg-text" dangerouslySetInnerHTML={{ __html: renderMd(item.text) }} />
-        <button className="msg-copy" onClick={copy} title="复制回复">
-          {copied ? '已复制' : '复制'}
-        </button>
+        <div className="msg-actions">
+          <button className="msg-copy" onClick={copyText} title="复制回复">
+            {copied ? '已复制' : '复制'}
+          </button>
+          {item.retryText && onRetry && (
+            <button className="msg-copy" onClick={() => onRetry(item.retryText ?? '')} title="重新生成">
+              重新生成
+            </button>
+          )}
+          {checkpointId && onRestore && (
+            <button
+              className="msg-copy"
+              onClick={() => onRestore(checkpointId)}
+              title="把工作区回滚到这条回复之后的状态（撤销其后的所有改动）"
+            >
+              回滚到此
+            </button>
+          )}
+        </div>
       </div>
     );
   }
@@ -103,6 +135,16 @@ export function MessageItem({ item, onDiff, onRevert, onOpen }: MessageItemProps
       <div className="msg-user-bubble">
         {item.text}
         {timeOf(item.ts) && <span className="msg-time">{timeOf(item.ts)}</span>}
+      </div>
+      <div className="msg-actions user-actions">
+        <button className="msg-copy" onClick={copyText} title="复制">
+          {copied ? '已复制' : '复制'}
+        </button>
+        {onEdit && (
+          <button className="msg-copy" onClick={() => onEdit(item.text)} title="载入输入框，编辑后重发">
+            编辑重发
+          </button>
+        )}
       </div>
     </div>
   );

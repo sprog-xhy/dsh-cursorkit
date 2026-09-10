@@ -43,6 +43,8 @@ export interface ServerDeps {
   /** Return the app version string. */
   appVersion: string;
   /** 会话索引（落盘；供 session.get/list 回读与历史会话列出）。 */
+  /** DSH_HOME（用于定位持久化会话日志）。 */
+  dshHome?: string;
   sessionIndex?: {
     get(id: string):
       | { model: string; workspace: string; createdAt: number; title?: string }

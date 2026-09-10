@@ -18,6 +18,12 @@ export interface MessageListProps {
   onDiff?: (path: string) => void;
   onRevert?: (path: string) => void;
   onOpen?: (path: string) => void;
+  /** 消息级操作。 */
+  onRetry?: (text: string) => void;
+  onEdit?: (text: string) => void;
+  /** checkpointId 映射：groupKey → checkpoint id（用于"回滚到此"）。 */
+  checkpointByGroup?: Record<string, string>;
+  onRestore?: (checkpointId: string) => void;
 }
 
 interface Group {
@@ -44,7 +50,17 @@ export function groupByTurn(items: ChatItem[]): Group[] {
   return groups;
 }
 
-export function MessageList({ items, busy, onDiff, onRevert, onOpen }: MessageListProps): JSX.Element {
+export function MessageList({
+  items,
+  busy,
+  onDiff,
+  onRevert,
+  onOpen,
+  onRetry,
+  onEdit,
+  checkpointByGroup,
+  onRestore,
+}: MessageListProps): JSX.Element {
   const listRef = useRef<HTMLDivElement>(null);
   const [stickToBottom, setStickToBottom] = useState(true);
 
@@ -92,8 +108,23 @@ export function MessageList({ items, busy, onDiff, onRevert, onOpen }: MessageLi
         {skipped > 0 && <div className="msgs-skipped">已省略较早的 {skipped} 条消息</div>}
         {groups.map((g) => (
           <div className={`turn ${g.turn !== undefined ? 'turn-tagged' : ''}`} key={g.key}>
-            {g.items.map((it) => (
-              <MessageItem key={it.id} item={it} onDiff={onDiff} onRevert={onRevert} onOpen={onOpen} />
+            {g.items.map((it, idx) => (
+              <MessageItem
+                key={it.id}
+                item={it}
+                onDiff={onDiff}
+                onRevert={onRevert}
+                onOpen={onOpen}
+                onRetry={onRetry}
+                onEdit={onEdit}
+                onRestore={onRestore}
+                checkpointId={
+                  // 只在每组的最后一条助手消息上显示"回滚到此"，避免刷屏
+                  it.role === 'assistant' && idx === g.items.length - 1
+                    ? checkpointByGroup?.[g.key]
+                    : undefined
+                }
+              />
             ))}
           </div>
         ))}

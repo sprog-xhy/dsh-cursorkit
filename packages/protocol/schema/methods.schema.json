@@ -307,6 +307,35 @@
           "type": "number"
         }
       }
+    },
+    "session.rename": {
+      "type": "object",
+      "required": [
+        "id",
+        "title"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      }
+    },
+    "session.delete": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "deleteFiles": {
+          "type": "boolean"
+        }
+      }
     }
   }
 }

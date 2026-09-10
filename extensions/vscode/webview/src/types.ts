@@ -14,6 +14,8 @@ export interface ChatItem {
   status?: string;
   /** system：级别（error 用错误色）。 */
   level?: 'info' | 'error' | 'stopped';
+  /** 助手消息：对应可重发的用户输入（重新生成用）。 */
+  retryText?: string;
   /** change：被修改的文件路径与统计。 */
   path?: string;
   additions?: number;
