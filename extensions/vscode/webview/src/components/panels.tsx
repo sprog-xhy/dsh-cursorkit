@@ -41,7 +41,9 @@ export function SessionsPanel(props: SessionsPanelProps): JSX.Element {
             title={s.workspace}
           >
             <span className={`panel-dot ${active ? 'on' : ''}`} />
-            <span className="panel-row-main">{s.id.slice(0, 14)}</span>
+            <span className="panel-row-main" title={s.id}>
+              {s.summary?.trim() || s.id.slice(0, 14)}
+            </span>
             <span className="panel-row-sub">{s.workspace.split('/').pop()}</span>
             {relTime(s.createdAt) && <span className="panel-row-mono">{relTime(s.createdAt)}</span>}
           </div>

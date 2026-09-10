@@ -83,11 +83,27 @@ export function translateRawEvent(
 ): RawCkpEvent | null {
   const type = raw.type ?? '';
   const d = dataOf(raw);
-  const message = (d.message ?? d) as { id?: string; role?: string; content?: unknown } | undefined;
+  const message = (d.message ?? d) as
+    | { id?: string; role?: string; content?: unknown; source?: { kind?: string } }
+    | undefined;
 
   switch (type) {
     case 'user/message': {
-      const text = message ? contentToText(message.content) : String(d.text ?? '');
+      /**
+       * 只把「真实用户消息」渲染成聊天气泡。
+       *
+       * dsh 会把内部注入也记成 user/message（source.kind = plugin / skill-catalog /
+       * compact / tool …）：系统提示快照、技能目录、运行时上下文、工具结果。
+       * 原实现不区分 → 聊天里会冒出一堆"用户发的"系统文本（污染会话）。
+       */
+      const source = (message?.source ?? d.source) as { kind?: string } | undefined;
+      const kind = source?.kind;
+      if (kind !== undefined && kind !== 'user') return null;
+      // 注意：`message` 恒为真（d.message ?? d），所以原先的 `: String(d.text ?? '')`
+      // 分支是死代码；这里改为「内容块优先，空则回退到裸 text」。
+      const fromContent = message?.content ? contentToText(message.content) : '';
+      const text = fromContent || String((d.text ?? '') as string);
+      if (!text) return null;
       return { sessionId, type: 'message.user', text, messageId: message?.id ?? raw.seq };
     }
 
@@ -177,6 +193,12 @@ export function translateRawEvent(
      * busy 永远为 true（一直显示"生成中"、停止按钮不消失）。
      * dsh 的结局有 4 种：completed / aborted / blocked / error。
      */
+    case 'session/title': {
+      const title = String((d.title ?? d.text ?? '') as string).trim();
+      if (!title) return null;
+      return { sessionId, type: 'session.title', title };
+    }
+
     case 'turn/end': {
       const reason = (d.reason ?? {}) as {
         kind?: string;
@@ -203,6 +225,18 @@ export function translateRawEvent(
 
     case 'approval/decided':
       return null;
+
+    // dsh 持久化会把连续分片压成一行（text-chunks / reasoning-chunks）；
+    // 正常情况下读回时已展开，这里做防御性展开，避免"文字丢失"。
+    case 'text-chunks':
+    case 'reasoning-chunks': {
+      const chunks = (d.chunks ?? []) as { text?: string }[];
+      const text = chunks.map((c) => c.text ?? '').join('');
+      if (!text) return null;
+      return type === 'text-chunks'
+        ? { sessionId, type: 'message.delta', text, ...turnStepOf(d) }
+        : { sessionId, type: 'thinking.delta', text, ...turnStepOf(d) };
+    }
 
     default:
       if (/^(error|cancel)/.test(type)) {

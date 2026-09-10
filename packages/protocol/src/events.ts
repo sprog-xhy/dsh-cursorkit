@@ -42,6 +42,8 @@ export interface CkpTurnStep {
 
 export type CkpEvent =
   | (CkpEventBase & { type: 'session.started'; workspace: string; model?: string })
+  /** 会话标题（dsh 生成，用于会话列表/顶栏展示）。 */
+  | (CkpEventBase & { type: 'session.title'; title: string })
   | (CkpEventBase & { type: 'message.user'; text: string; attachments?: unknown[]; mentions?: string[] })
   | (CkpEventBase & CkpTurnStep & { type: 'message.delta'; text: string })
   | (CkpEventBase & { type: 'message.done'; message: Message })

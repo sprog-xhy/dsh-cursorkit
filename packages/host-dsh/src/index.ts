@@ -22,7 +22,7 @@ import { registerDshAnswerer } from './bridge/dsh-approval-adapter.ts';
 import { attachAutoCheckpoint } from './checkpoint/auto-checkpoint.ts';
 import { CKP_PROTOCOL_VERSION } from '@dsh-cursorkit/protocol';
 import { dirname } from 'node:path';
-import { SessionIndex, sessionIndexFile } from './session-index.ts';
+import { SessionIndex, sessionIndexFile, cleanSessionTitle } from './session-index.ts';
 
 /** Public API surface — plugin entry plus the pieces a host harness needs to
  * test, embed, or extend the server. */
@@ -272,6 +272,27 @@ export function apply(ctx: HostCtx, config: HostConfig = {}): void {
         const bridgeTracker = new SessionBridgeTracker();
         const onEvent = (session: { id: string }, event: unknown) => {
           const raw = event as never;
+          // 会话标题落盘（dsh 生成，供会话列表显示）
+          if ((raw as RawSessionEvent).type === 'session/title') {
+            const title = cleanSessionTitle(
+              String(((raw as RawSessionEvent).data as { title?: string } | undefined)?.title ?? ''),
+            );
+            if (title) sessionIndex.setTitle(session.id, title);
+          }
+          // 首条真实用户消息 → 作为标题兜底（dsh 的标题是异步生成的，列表先有内容更友好）
+          if ((raw as RawSessionEvent).type === 'user/message' && !sessionIndex.titleOf(session.id)) {
+            const d = ((raw as RawSessionEvent).data ?? {}) as {
+              source?: { kind?: string };
+              content?: { type?: string; text?: string }[];
+            };
+            if (d.source?.kind === 'user') {
+              const text = (d.content ?? [])
+                .map((b) => (typeof b?.text === 'string' ? b.text : ''))
+                .join('');
+              const fallback = cleanSessionTitle(text);
+              if (fallback) sessionIndex.setTitle(session.id, fallback);
+            }
+          }
           const translated = translateRawEvent(session.id, raw);
           if (translated) bus.emit(translated as never);
           // Track tool/call for file.changed inference on the matching result.

@@ -116,3 +116,78 @@ describe('translateRawEvent: turn/end（修复"停止没反应"）', () => {
     expect(evt?.type).toBe('done');
   });
 });
+
+describe('translateRawEvent: user/message 只渲染真实用户消息（修复气泡污染）', () => {
+  it('source.kind=user → message.user', () => {
+    const evt = translateRawEvent(S, {
+      type: 'user/message',
+      data: {
+        content: [{ type: 'text', text: '你好' }],
+        source: { kind: 'user' },
+      },
+    });
+    expect(evt).toMatchObject({ type: 'message.user', text: '你好' });
+  });
+
+  it('source.kind=plugin（系统提示快照）→ 丢弃', () => {
+    expect(
+      translateRawEvent(S, {
+        type: 'user/message',
+        data: {
+          content: [{ type: 'text', text: 'Current runtime context…' }],
+          source: { kind: 'plugin', plugin: '@deepseek-ai/dsh-system-prompt' },
+        },
+      }),
+    ).toBeNull();
+  });
+
+  it('source.kind=skill-catalog → 丢弃', () => {
+    expect(
+      translateRawEvent(S, {
+        type: 'user/message',
+        data: { content: [{ type: 'text', text: 'skill list' }], source: { kind: 'skill-catalog' } },
+      }),
+    ).toBeNull();
+  });
+
+  it('source.kind=tool（工具结果）→ 丢弃', () => {
+    expect(
+      translateRawEvent(S, {
+        type: 'user/message',
+        data: { content: [{ type: 'text', text: 'tool result' }], source: { kind: 'tool' } },
+      }),
+    ).toBeNull();
+  });
+
+  it('无 source 信息时保持兼容（仍按用户消息）', () => {
+    const evt = translateRawEvent(S, { type: 'user/message', data: { text: 'legacy' } });
+    expect(evt).toMatchObject({ type: 'message.user', text: 'legacy' });
+  });
+});
+
+describe('translateRawEvent: session/title 与持久化分片行', () => {
+  it('session/title → session.title 事件', () => {
+    const evt = translateRawEvent(S, { type: 'session/title', data: { title: '解释项目架构' } });
+    expect(evt).toMatchObject({ type: 'session.title', title: '解释项目架构' });
+  });
+
+  it('空标题不产生事件', () => {
+    expect(translateRawEvent(S, { type: 'session/title', data: { title: '  ' } })).toBeNull();
+  });
+
+  it('text-chunks（持久化行）防御性展开为 message.delta', () => {
+    const evt = translateRawEvent(S, {
+      type: 'text-chunks',
+      data: { turn: 1, step: 1, chunks: [{ text: '你' }, { text: '好' }] },
+    });
+    expect(evt).toMatchObject({ type: 'message.delta', text: '你好' });
+  });
+
+  it('reasoning-chunks 展开为 thinking.delta', () => {
+    const evt = translateRawEvent(S, {
+      type: 'reasoning-chunks',
+      data: { chunks: [{ text: '想' }, { text: '一下' }] },
+    });
+    expect(evt).toMatchObject({ type: 'thinking.delta', text: '想一下' });
+  });
+});

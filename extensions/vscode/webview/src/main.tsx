@@ -123,6 +123,8 @@ function App(): JSX.Element {
   const [activeSessionId, setActiveSessionId] = useState('');
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [settingsData, setSettingsData] = useState<SettingsData | null>(null);
+  /** sessionId → 标题（来自 session.list 与 session.title 事件）。 */
+  const [titles, setTitles] = useState<Record<string, string>>({});
   const [panel, setPanel] = useState<PanelKind>(null);
   const [dismissedHint, setDismissedHint] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -168,13 +170,22 @@ function App(): JSX.Element {
         case 'checkpoint.list':
           setCheckpoints(msg.checkpoints);
           break;
-        case 'session.list':
+        case 'session.list': {
           setSessions(msg.sessions);
+          setTitles((prev) => {
+            const next = { ...prev };
+            for (const s of msg.sessions) {
+              if (s.summary?.trim()) next[s.id] = s.summary.trim();
+            }
+            return next;
+          });
           if (msg.activeSessionId) setActiveSessionId(msg.activeSessionId);
           break;
+        }
         case 'session.switched':
           // 修复：切换/新建会话必须清空消息，否则与回放的历史串台
           setItems([]);
+          post({ type: 'session.list' });
           setBusy(false);
           setActiveSessionId(msg.sessionId);
           post({ type: 'checkpoint.list', sessionId: msg.sessionId });
@@ -295,6 +306,27 @@ function App(): JSX.Element {
           output: `${it.output ?? ''}${it.output ? '\n' : ''}${evt.output}`,
         }));
         break;
+      case 'file.changed': {
+        const c = (evt as unknown as { change?: { path: string; additions: number; deletions: number; status: string } }).change;
+        if (c?.path) {
+          pushItem({
+            id: `chg-${c.path}-${evt.ts}`,
+            role: 'change',
+            text: c.path,
+            path: c.path,
+            additions: c.additions ?? 0,
+            deletions: c.deletions ?? 0,
+            status: c.status,
+            ts: evt.ts,
+          });
+        }
+        break;
+      }
+      case 'session.title': {
+        const t = (evt as unknown as { title?: string }).title ?? '';
+        if (t) setTitles((prev) => ({ ...prev, [evt.sessionId]: t }));
+        break;
+      }
       case 'message.done':
       case 'done':
         setBusy(false);
@@ -329,6 +361,7 @@ function App(): JSX.Element {
         model={modelLabel}
         sidecarInfo={sidecarInfo}
         activeSessionId={activeSessionId}
+        activeSessionLabel={titles[activeSessionId] ?? ''}
         changesCount={changes.length}
         activePanel={panel}
         onToggleSessions={() => togglePanel('sessions', () => post({ type: 'session.list' }))}
@@ -402,7 +435,13 @@ function App(): JSX.Element {
         />
       )}
 
-      <MessageList items={items} busy={busy} />
+      <MessageList
+        items={items}
+        busy={busy}
+        onDiff={(path) => post({ type: 'review.diff', path })}
+        onRevert={(path) => post({ type: 'review.reject', path })}
+        onOpen={(path) => post({ type: 'review.open', path })}
+      />
 
       {!dismissedHint && items.length === 0 && (
         <div className="hints">

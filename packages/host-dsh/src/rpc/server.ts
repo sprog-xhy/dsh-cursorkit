@@ -44,10 +44,13 @@ export interface ServerDeps {
   appVersion: string;
   /** 会话索引（落盘；供 session.get/list 回读与历史会话列出）。 */
   sessionIndex?: {
-    get(id: string): { model: string; workspace: string; createdAt: number } | undefined;
+    get(id: string):
+      | { model: string; workspace: string; createdAt: number; title?: string }
+      | undefined;
     modelOf(id: string): string | undefined;
+    titleOf?(id: string): string | undefined;
     set(id: string, entry: { model: string; workspace: string; createdAt: number }): void;
-    all(): [string, { model: string; workspace: string; createdAt: number }][];
+    all(): [string, { model: string; workspace: string; createdAt: number; title?: string }][];
   };
 }
 

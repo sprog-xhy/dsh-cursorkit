@@ -10,6 +10,8 @@ export interface TopBarProps {
   model: string;
   sidecarInfo: string;
   activeSessionId: string;
+  /** 当前会话标题（无标题时回退到 id 前缀）。 */
+  activeSessionLabel?: string;
   changesCount: number;
   activePanel: string | null;
   onToggleSessions: () => void;
@@ -29,7 +31,7 @@ const STATUS_META: Record<ConnectionStatus, { icon: string; label: string }> = {
 
 export function TopBar(props: TopBarProps): JSX.Element {
   const {
-    status, model, sidecarInfo, activeSessionId, changesCount, activePanel,
+    status, model, sidecarInfo, activeSessionId, activeSessionLabel, changesCount, activePanel,
     onToggleSessions, onNewSession, onToggleReview, onToggleModels, onToggleSettings, onToggleCheckpoints,
   } = props;
   const meta = STATUS_META[status];
@@ -45,7 +47,7 @@ export function TopBar(props: TopBarProps): JSX.Element {
       </span>
       <div className="topbar-actions">
         <button className={cls('sessions')} data-dsh="session" onClick={onToggleSessions} title="会话列表 / 新建">
-          {activeSessionId ? activeSessionId.slice(0, 8) : '会话'}
+          {activeSessionLabel || (activeSessionId ? activeSessionId.slice(0, 8) : '会话')}
         </button>
         <button className="tb-btn" onClick={onNewSession} title="新建会话（Composer 新任务）">
           ＋

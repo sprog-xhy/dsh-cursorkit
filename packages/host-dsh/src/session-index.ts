@@ -30,6 +30,8 @@ export interface SessionIndexEntry {
   workspace: string;
   /** 创建时间（epoch ms）。 */
   createdAt: number;
+  /** 会话标题（dsh 的 session/title 事件；用于会话列表/顶栏展示）。 */
+  title?: string;
 }
 
 export interface SessionIndexOptions {
@@ -60,6 +62,7 @@ export class SessionIndex {
           model: v.model,
           workspace: typeof v.workspace === 'string' ? v.workspace : '',
           createdAt: typeof v.createdAt === 'number' ? v.createdAt : Date.now(),
+          ...(typeof v.title === 'string' && v.title ? { title: v.title } : {}),
         });
       }
     } catch {
@@ -74,6 +77,24 @@ export class SessionIndex {
   /** 仅取模型（`session.get`/`list` 回读用）。 */
   modelOf(id: string): string | undefined {
     return this.map.get(id)?.model;
+  }
+
+  /**
+   * 记录/更新会话标题（dsh 的 session/title）。
+   * 索引里没有该会话时创建只有标题的条目（模型/工作区留空）。
+   */
+  setTitle(id: string, title: string): void {
+    const cur = this.map.get(id);
+    const next: SessionIndexEntry = cur
+      ? { ...cur, title }
+      : { model: '', workspace: '', createdAt: Date.now(), title };
+    this.map.set(id, next);
+    this.scheduleFlush();
+  }
+
+  /** 仅取标题。 */
+  titleOf(id: string): string | undefined {
+    return this.map.get(id)?.title;
   }
 
   set(id: string, entry: SessionIndexEntry): void {
@@ -127,6 +148,21 @@ export class SessionIndex {
       this.map.delete(oldest.value);
     }
   }
+}
+
+/**
+ * 清洗会话标题。
+ *
+ * dsh 的标题由「首条用户消息」生成，而我们的模式提示会附在其后
+ * （实测标题变成 `解释项目架构 [模式: Agent] 如果这个请求需要改动代码…`）。
+ * 这里剥掉模式提示与多余空白。
+ */
+export function cleanSessionTitle(raw: string): string {
+  return raw
+    .replace(/\[模式[:：][\s\S]*$/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80);
 }
 
 /** 索引文件路径（与 runtime.json 同目录）。 */

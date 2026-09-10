@@ -21,6 +21,7 @@ import { translateRawEvent, type RawSessionEvent } from '../bridge/session-bridg
 import { computeFileChanges } from '../diff/git-diff.ts';
 import { listCheckpoints, restoreCheckpoint } from '../checkpoint/git-checkpoint.ts';
 import { listWorktrees, createWorktree, removeWorktree } from '../worktree/git-worktree.ts';
+import { cleanSessionTitle } from '../session-index.ts';
 
 /** 单文件注入上限（防爆上下文）。 */
 const CONTEXT_FILE_MAX_BYTES = 64 * 1024;
@@ -36,10 +37,15 @@ export interface RouterServices {
   dshVersion: string;
   /** 会话索引（落盘；重启后仍可列出/回读历史会话）。 */
   sessionIndex?: {
-    get(id: string): { model: string; workspace: string; createdAt: number } | undefined;
+    get(id: string):
+      | { model: string; workspace: string; createdAt: number; title?: string }
+      | undefined;
     modelOf(id: string): string | undefined;
+    /** 会话标题（dsh session/title 捕获）。 */
+    titleOf?(id: string): string | undefined;
+    setTitle?(id: string, title: string): void;
     set(id: string, entry: { model: string; workspace: string; createdAt: number }): void;
-    all(): [string, { model: string; workspace: string; createdAt: number }][];
+    all(): [string, { model: string; workspace: string; createdAt: number; title?: string }][];
   };
 }
 
@@ -106,7 +112,7 @@ export class Router {
         createdAt: s.header?.createdAt ?? Date.now(),
         updatedAt: Date.now(),
         status: 'idle' as const,
-        summary: undefined,
+        summary: svc.sessionIndex?.titleOf?.(s.id),
       }));
       // 补齐"已持久化但未载入内存"的历史会话（dsh 重启后不会自动载入）
       for (const [id, entry] of svc.sessionIndex?.all() ?? []) {
@@ -118,7 +124,7 @@ export class Router {
           createdAt: entry.createdAt,
           updatedAt: entry.createdAt,
           status: 'idle' as const,
-          summary: undefined,
+          summary: entry.title,
         });
       }
       return rows;
@@ -172,6 +178,7 @@ export class Router {
           id: s.id,
           workspace: s.header?.cwd ?? '',
           model: svc.sessionIndex?.modelOf(s.id),
+          title: svc.sessionIndex?.titleOf?.(s.id),
           createdAt: s.header?.createdAt ?? Date.now(),
           updatedAt: Date.now(),
           status: 'idle' as const,
@@ -597,6 +604,36 @@ export const DEFAULT_MODEL = 'wps/moonshot/kimi-k2.7-code';
  * 解析模型引用 `provider/model-id`（model-id 可含 '/'）。
  * 无 '/' 时视为「只有模型 id、无 provider」（原先会产出 provider=整串 + model='' 的坏配置）。
  */
+/**
+ * 从会话原始事件里推导标题（用于旧会话回填）。
+ * 优先 dsh 的 session/title，其次首条真实用户消息。
+ */
+export function deriveSessionTitle(events: readonly unknown[]): string | undefined {
+  let firstUser = '';
+  for (const e of events) {
+    const ev = e as { type?: string; data?: Record<string, unknown> };
+    if (ev.type === 'session/title') {
+      const t = cleanSessionTitle(String((ev.data as { title?: string } | undefined)?.title ?? ''));
+      if (t) return t;
+    }
+    if (!firstUser && ev.type === 'user/message') {
+      const d = (ev.data ?? {}) as {
+        source?: { kind?: string };
+        content?: { type?: string; text?: string }[];
+        text?: string;
+      };
+      if (d.source?.kind === 'user' || d.source === undefined) {
+        const text =
+          (d.content ?? []).map((b) => (typeof b?.text === 'string' ? b.text : '')).join('') ||
+          String(d.text ?? '');
+        const cleaned = cleanSessionTitle(text);
+        if (cleaned) firstUser = cleaned;
+      }
+    }
+  }
+  return firstUser || undefined;
+}
+
 export function parseModelRef(ref?: string): { provider?: string; model: string; full: string } {
   const raw = (ref ?? '').trim() || DEFAULT_MODEL;
   const slash = raw.indexOf('/');

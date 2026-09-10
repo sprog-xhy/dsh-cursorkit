@@ -5,7 +5,7 @@
  * busSeq 返回（供客户端只订阅实时）、limit 截断保留尾部、完全未知会话报错。
  */
 import { describe, it, expect } from 'vitest';
-import { Router, type RouterServices } from '../src/rpc/router.ts';
+import { Router, deriveSessionTitle, type RouterServices } from '../src/rpc/router.ts';
 import { EventBus } from '../src/rpc/sse.ts';
 import { ApprovalBridge } from '../src/bridge/approval-bridge.ts';
 import type { CapabilityReport } from '../src/capability.ts';
@@ -63,6 +63,8 @@ function harness(opts: { live?: boolean; indexed?: Record<string, SessionIndexEn
     sessionIndex: {
       get: (id) => index.get(id),
       modelOf: (id) => index.get(id)?.model,
+      titleOf: (id) => index.get(id)?.title,
+      setTitle: (id, title) => index.set(id, { ...(index.get(id) ?? { model: '', workspace: '', createdAt: Date.now() }), title }),
       set: (id, e) => {
         index.set(id, e);
       },
@@ -132,5 +134,33 @@ describe('session.history', () => {
       throw new Error('boom');
     };
     await expect(h.router.dispatch('session.history', { id: 's1' })).rejects.toThrow(/无法恢复/);
+  });
+});
+
+describe('deriveSessionTitle（旧会话标题回填）', () => {
+  it('优先用 session/title 并清洗模式提示', () => {
+    expect(
+      deriveSessionTitle([
+        { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: '问题' }] } },
+        { type: 'session/title', data: { title: '解释项目架构 [模式: Agent] 如果…' } },
+      ]),
+    ).toBe('解释项目架构');
+  });
+
+  it('没有 title 事件时用首条真实用户消息', () => {
+    expect(
+      deriveSessionTitle([
+        { type: 'user/message', data: { source: { kind: 'plugin' }, content: [{ type: 'text', text: '系统提示' }] } },
+        { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: '帮我修白屏\n\n[模式: Agent] xxx' }] } },
+      ]),
+    ).toBe('帮我修白屏');
+  });
+
+  it('只有系统注入时不产生标题', () => {
+    expect(
+      deriveSessionTitle([
+        { type: 'user/message', data: { source: { kind: 'skill-catalog' }, content: [{ type: 'text', text: 'skills' }] } },
+      ]),
+    ).toBeUndefined();
   });
 });

@@ -11,6 +11,7 @@ import type { ChatItem } from '../types.ts';
 import { renderMd } from '../markdown.ts';
 import { ThinkingBlock } from './ThinkingBlock.tsx';
 import { ToolCallCard } from './ToolCallCard.tsx';
+import { ChangeCard } from './ChangeCard.tsx';
 
 function timeOf(ts?: number): string {
   if (!ts) return '';
@@ -21,8 +22,32 @@ function timeOf(ts?: number): string {
   }
 }
 
-export function MessageItem({ item }: { item: ChatItem }): JSX.Element {
+export interface MessageItemProps {
+  item: ChatItem;
+  /** 改动卡片动作（可选：历史回放时不需要）。 */
+  onDiff?: (path: string) => void;
+  onRevert?: (path: string) => void;
+  onOpen?: (path: string) => void;
+}
+
+export function MessageItem({ item, onDiff, onRevert, onOpen }: MessageItemProps): JSX.Element {
   const [copied, setCopied] = useState(false);
+
+  if (item.role === 'change') {
+    return (
+      <div className="msg msg-change">
+        <ChangeCard
+          path={item.path ?? item.text}
+          additions={item.additions ?? 0}
+          deletions={item.deletions ?? 0}
+          status={item.status}
+          onDiff={() => onDiff?.(item.path ?? item.text)}
+          onRevert={() => onRevert?.(item.path ?? item.text)}
+          onOpen={() => onOpen?.(item.path ?? item.text)}
+        />
+      </div>
+    );
+  }
 
   if (item.role === 'tool') {
     return (

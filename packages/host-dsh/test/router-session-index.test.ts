@@ -78,6 +78,7 @@ function harness(opts: { liveSessions?: string[]; indexed?: Record<string, Sessi
     sessionIndex: {
       get: (id) => index.get(id),
       modelOf: (id) => index.get(id)?.model,
+      titleOf: (id) => index.get(id)?.title,
       set: (id, entry) => {
         index.set(id, entry);
       },
@@ -88,6 +89,13 @@ function harness(opts: { liveSessions?: string[]; indexed?: Record<string, Sessi
 }
 
 describe('Router × sessionIndex', () => {
+  it('session.list 带上会话标题（summary 字段）', async () => {
+    const h = harness({ indexed: { 's-old': { model: 'm/a', workspace: '/w', createdAt: 1, title: '解释项目架构' } } });
+    const list = await h.router.dispatch('session.list', {} as never);
+    const row = list.find((x) => x.id === 's-old');
+    expect(row?.summary).toBe('解释项目架构');
+  });
+
   let h: Harness;
   beforeEach(() => {
     h = harness();

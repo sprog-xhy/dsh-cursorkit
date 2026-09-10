@@ -14,6 +14,10 @@ export const MAX_DOM_ITEMS = 500;
 export interface MessageListProps {
   items: ChatItem[];
   busy: boolean;
+  /** 改动卡片动作（review.diff / review.reject / review.open）。 */
+  onDiff?: (path: string) => void;
+  onRevert?: (path: string) => void;
+  onOpen?: (path: string) => void;
 }
 
 interface Group {
@@ -40,7 +44,7 @@ export function groupByTurn(items: ChatItem[]): Group[] {
   return groups;
 }
 
-export function MessageList({ items, busy }: MessageListProps): JSX.Element {
+export function MessageList({ items, busy, onDiff, onRevert, onOpen }: MessageListProps): JSX.Element {
   const listRef = useRef<HTMLDivElement>(null);
   const [stickToBottom, setStickToBottom] = useState(true);
 
@@ -89,7 +93,7 @@ export function MessageList({ items, busy }: MessageListProps): JSX.Element {
         {groups.map((g) => (
           <div className={`turn ${g.turn !== undefined ? 'turn-tagged' : ''}`} key={g.key}>
             {g.items.map((it) => (
-              <MessageItem key={it.id} item={it} />
+              <MessageItem key={it.id} item={it} onDiff={onDiff} onRevert={onRevert} onOpen={onOpen} />
             ))}
           </div>
         ))}

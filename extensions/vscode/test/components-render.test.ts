@@ -14,6 +14,7 @@ import { Composer } from '../webview/src/components/Composer.tsx';
 import { ThinkingBlock } from '../webview/src/components/ThinkingBlock.tsx';
 import { ToolCallCard } from '../webview/src/components/ToolCallCard.tsx';
 import { Panel } from '../webview/src/components/Panel.tsx';
+import { ChangeCard } from '../webview/src/components/ChangeCard.tsx';
 import {
   SessionsPanel,
   ModelsPanel,
@@ -324,5 +325,88 @@ describe('面板组件', () => {
     expect(html).toContain('ts.mdc');
     expect(html).toContain('danger-full-access');
     expect(html).toContain('~/.cursorrules');
+  });
+});
+
+describe('内联改动卡片与会话标题（Cursor 化）', () => {
+  it('ChangeCard：显示文件名/统计/diff+撤销按钮', () => {
+    const html = renderToStaticMarkup(
+      h(ChangeCard, {
+        path: 'src/components/App.tsx',
+        additions: 12,
+        deletions: 3,
+        status: 'modified',
+        onDiff: noop,
+        onRevert: noop,
+        onOpen: noop,
+      }),
+    );
+    expect(html).toContain('>App.tsx<'); // 可见文本只显示文件名
+    expect(html).toContain('title="src/components/App.tsx"'); // 全路径放 tooltip
+    expect(html).toContain('+12');
+    expect(html).toContain('-3');
+    expect(html).toContain('查看差异');
+    expect(html).toContain('撤销');
+  });
+
+  it('ChangeCard：新增文件用「新增」标签且无 -0', () => {
+    const html = renderToStaticMarkup(
+      h(ChangeCard, {
+        path: 'a.ts',
+        additions: 5,
+        deletions: 0,
+        status: 'created',
+        onDiff: noop,
+        onRevert: noop,
+        onOpen: noop,
+      }),
+    );
+    expect(html).toContain('新增');
+    expect(html).not.toContain('-0');
+  });
+
+  it('MessageItem：role=change 渲染改动卡片', () => {
+    const html = renderToStaticMarkup(
+      h(MessageItem, {
+        item: { id: 'c1', role: 'change', text: 'b.ts', path: 'b.ts', additions: 2, deletions: 1 },
+      }),
+    );
+    expect(html).toContain('change-card');
+  });
+
+  it('SessionsPanel：优先显示标题，无标题回退到 id', () => {
+    const html = renderToStaticMarkup(
+      h(SessionsPanel, {
+        sessions: [
+          { id: 'session-abcdef123456', workspace: '/w/p', summary: '解释项目架构' },
+          { id: 'session-999999', workspace: '/w/p' },
+        ],
+        activeSessionId: 'session-abcdef123456',
+        onSwitch: noop,
+        onNew: noop,
+        onClose: noop,
+      }),
+    );
+    expect(html).toContain('解释项目架构');
+    expect(html).toContain('session-999999'.slice(0, 14));
+  });
+
+  it('TopBar：显示会话标题（无标题时回退 id 前缀）', () => {
+    const base = {
+      status: 'ready' as const,
+      model: 'kimi-k2.7-code',
+      sidecarInfo: ':1',
+      activeSessionId: 'session-abcdef',
+      changesCount: 0,
+      activePanel: null,
+      onToggleSessions: noop,
+      onNewSession: noop,
+      onToggleReview: noop,
+      onToggleModels: noop,
+      onToggleSettings: noop,
+      onToggleCheckpoints: noop,
+    };
+    expect(renderToStaticMarkup(h(TopBar, { ...base, activeSessionLabel: '修复白屏' }))).toContain('修复白屏');
+    expect(renderToStaticMarkup(h(TopBar, base))).toContain('session-');
   });
 });

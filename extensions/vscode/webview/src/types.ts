@@ -6,7 +6,7 @@
 /** 消息渲染模型。 */
 export interface ChatItem {
   id: string;
-  role: 'user' | 'assistant' | 'tool' | 'system' | 'thinking';
+  role: 'user' | 'assistant' | 'tool' | 'system' | 'thinking' | 'change';
   text: string;
   /** tool：输出文本（折叠区）。 */
   output?: string;
@@ -14,6 +14,10 @@ export interface ChatItem {
   status?: string;
   /** system：级别（error 用错误色）。 */
   level?: 'info' | 'error' | 'stopped';
+  /** change：被修改的文件路径与统计。 */
+  path?: string;
+  additions?: number;
+  deletions?: number;
   /** 时间戳。 */
   ts?: number;
   /** dsh 轮次/步骤（用于把同一轮的内容归组，来自协议 CkpTurnStep）。 */
@@ -43,6 +47,8 @@ export interface CheckpointInfo {
 export interface SessionInfo {
   id: string;
   workspace: string;
+  /** 会话标题（dsh session/title，用于列表展示）。 */
+  summary?: string;
   status?: string;
   createdAt?: number;
   updatedAt?: number;
