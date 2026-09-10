@@ -419,6 +419,7 @@ function App(): JSX.Element {
         mode={mode}
         onModeChange={setMode}
         ready={connected === 'ready'}
+        status={connected}
         textareaRef={inputRef}
       />
     </div>

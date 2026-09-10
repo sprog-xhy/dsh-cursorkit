@@ -548,3 +548,30 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+/* ── 窄宽度适配（活动栏侧边栏 ~300px / 编辑器面板较宽） ──
+   用容器查询按 webview 自身宽度响应，而非窗口宽度。 */
+.app { container-type: inline-size; }
+
+@container (max-width: 420px) {
+  .topbar { gap: 6px; padding: 6px 8px; }
+  .topbar-title { display: none; }
+  .topbar-sidecar { display: none; }
+  .topbar-actions { margin-left: 0; overflow-x: auto; scrollbar-width: none; }
+  .topbar-actions::-webkit-scrollbar { display: none; }
+  .tb-btn { padding: 3px 6px; font-size: 10.5px; }
+  .messages { padding: 10px 10px; gap: 10px; }
+  .msg-user-bubble { max-width: 95%; }
+  .hints { display: none; }
+  .composer { padding: 6px 8px 10px; }
+  .panel-body { padding: 4px 6px 8px; }
+}
+
+@container (max-width: 300px) {
+  .thinking-dots { display: none; }
+  .tool-chars { display: none; }
+  .mode-btn { padding: 2px 7px; font-size: 11px; }
+}
+
+/* 工具卡片操作行 */
+.tool-card-actions { display: flex; gap: 6px; margin-top: 6px; justify-content: flex-end; }

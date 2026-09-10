@@ -46,7 +46,7 @@ export function MessageList({ items, busy }: MessageListProps): JSX.Element {
 
   return (
     <div className="messages-wrap">
-      <div className="messages" ref={listRef} onScroll={onScroll}>
+      <div className="messages" ref={listRef} onScroll={onScroll} aria-live="polite" aria-relevant="additions text">
         {items.length === 0 && (
           <div className="empty">
             <div className="empty-title">DSH CursorKit</div>

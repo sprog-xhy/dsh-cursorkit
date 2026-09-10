@@ -14,6 +14,8 @@ export interface ComposerProps {
   mode: ChatMode;
   onModeChange: (m: ChatMode) => void;
   ready: boolean;
+  /** 连接状态，用于给出更准确的未就绪提示。 */
+  status: 'starting' | 'ready' | 'error' | 'stopped';
   textareaRef: React.RefObject<HTMLTextAreaElement>;
 }
 
@@ -23,8 +25,22 @@ const MODES: { key: ChatMode; label: string; hint: string }[] = [
   { key: 'agent', label: 'Agent', hint: 'Agent：多文件自动执行（含计划）' },
 ];
 
+/** 按模式给出占位提示。 */
+const PLACEHOLDER: Record<ChatMode, string> = {
+  ask: '问一个问题（Enter 发送，Shift+Enter 换行）',
+  edit: '描述要如何修改选中代码（Enter 发送）',
+  agent: '描述任务，可跨多个文件（Enter 发送）',
+};
+
+function placeholderFor(ready: boolean, status: ComposerProps['status'], mode: ChatMode): string {
+  if (ready) return PLACEHOLDER[mode];
+  if (status === 'error') return 'sidecar 连接失败（查看输出面板：DSH CursorKit Sidecar）';
+  if (status === 'stopped') return 'sidecar 已停止';
+  return '正在连接 dsh sidecar…';
+}
+
 export function Composer(props: ComposerProps): JSX.Element {
-  const { value, onChange, onSend, onStop, busy, mode, onModeChange, ready, textareaRef } = props;
+  const { value, onChange, onSend, onStop, busy, mode, onModeChange, ready, status, textareaRef } = props;
 
   // 输入框高度自适应（最多 ~10 行）
   useEffect(() => {
@@ -42,9 +58,7 @@ export function Composer(props: ComposerProps): JSX.Element {
           ref={textareaRef}
           value={value}
           disabled={disabled}
-          placeholder={
-            disabled ? '正在连接 dsh sidecar…' : '询问代码 / 让 agent 修改（Enter 发送，Shift+Enter 换行）'
-          }
+          placeholder={placeholderFor(ready, status, mode)}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {

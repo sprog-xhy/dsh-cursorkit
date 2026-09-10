@@ -43,6 +43,7 @@ export function SessionsPanel(props: SessionsPanelProps): JSX.Element {
             <span className={`panel-dot ${active ? 'on' : ''}`} />
             <span className="panel-row-main">{s.id.slice(0, 14)}</span>
             <span className="panel-row-sub">{s.workspace.split('/').pop()}</span>
+            {relTime(s.createdAt) && <span className="panel-row-mono">{relTime(s.createdAt)}</span>}
           </div>
         );
       })}
@@ -119,6 +120,16 @@ export function ReviewPanel(props: ReviewPanelProps): JSX.Element {
       ))}
     </Panel>
   );
+}
+
+/** 相对时间（新建会话的面板更易读）。 */
+function relTime(ts?: number): string {
+  if (!ts) return '';
+  const diff = Date.now() - ts;
+  if (diff < 60_000) return '刚刚';
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
+  return `${Math.floor(diff / 86_400_000)} 天前`;
 }
 
 function statusLabel(status: string): string {

@@ -31,6 +31,17 @@ function timelineColor(name: string, status?: string): string {
   return 'var(--ds-tl-thinking)';
 }
 
+/** 复制工具输出。 */
+async function copyOutput(text: string, done: (v: boolean) => void): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+    done(true);
+    setTimeout(() => done(false), 1200);
+  } catch {
+    /* 剪贴板不可用时静默 */
+  }
+}
+
 /** 工具图标（内联 SVG，无网络资源）。 */
 function toolIcon(name: string): JSX.Element {
   const n = name.toLowerCase();
@@ -82,6 +93,7 @@ function toolIcon(name: string): JSX.Element {
 export function ToolCallCard({ name, status, output }: ToolCallCardProps): JSX.Element {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
   const running = status === 'running' || !status;
   const color = timelineColor(name, status);
 
@@ -126,11 +138,16 @@ export function ToolCallCard({ name, status, output }: ToolCallCardProps): JSX.E
       {open && output && (
         <div className="tool-card-output">
           <pre>{shown}</pre>
-          {truncated && (
-            <button className="panel-btn" onClick={() => setExpanded((v) => !v)}>
-              {expanded ? '收起' : `展开全部（${output.length} 字符）`}
+          <div className="tool-card-actions">
+            {truncated && (
+              <button className="panel-btn" onClick={() => setExpanded((v) => !v)}>
+                {expanded ? '收起' : `展开全部（${output.length} 字符）`}
+              </button>
+            )}
+            <button className="panel-btn" onClick={() => void copyOutput(output, setCopied)}>
+              {copied ? '已复制' : '复制'}
             </button>
-          )}
+          </div>
         </div>
       )}
     </div>
