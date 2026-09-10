@@ -6,36 +6,92 @@
   "publisher": "sprogx",
   "license": "MIT",
   "private": true,
+  "icon": "assets/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sprog-xhy/dsh-cursorkit.git"
+  },
   "engines": {
     "vscode": "^1.95.0"
   },
-  "categories": ["AI", "Programming Languages", "Other"],
+  "categories": [
+    "AI",
+    "Programming Languages",
+    "Other"
+  ],
   "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
-      { "command": "dshCursorkit.newChat", "title": "DSH CursorKit: New Chat", "icon": "$(comment-discussion)" },
-      { "command": "dshCursorkit.openChat", "title": "DSH CursorKit: Open Chat" },
-      { "command": "dshCursorkit.stop", "title": "DSH CursorKit: Stop" },
-      { "command": "dshCursorkit.editCode", "title": "DSH CursorKit: Edit Code (Ctrl+K)", "icon": "$(pencil)" },
-      { "command": "dshCursorkit.toggleTab", "title": "DSH CursorKit: Toggle Tab Completion" },
-      { "command": "dshCursorkit.openSettings", "title": "DSH CursorKit: Settings" },
-      { "command": "dshCursorkit.checkpoints", "title": "DSH CursorKit: Checkpoints (时间线)" }
+      {
+        "command": "dshCursorkit.newChat",
+        "title": "DSH CursorKit: New Chat",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "dshCursorkit.openChat",
+        "title": "DSH CursorKit: Open Chat"
+      },
+      {
+        "command": "dshCursorkit.stop",
+        "title": "DSH CursorKit: Stop"
+      },
+      {
+        "command": "dshCursorkit.editCode",
+        "title": "DSH CursorKit: Edit Code (Ctrl+K)",
+        "icon": "$(pencil)"
+      },
+      {
+        "command": "dshCursorkit.toggleTab",
+        "title": "DSH CursorKit: Toggle Tab Completion"
+      },
+      {
+        "command": "dshCursorkit.openSettings",
+        "title": "DSH CursorKit: Settings"
+      },
+      {
+        "command": "dshCursorkit.checkpoints",
+        "title": "DSH CursorKit: Checkpoints (时间线)"
+      }
     ],
     "keybindings": [
-      { "command": "dshCursorkit.openChat", "key": "ctrl+alt+c", "when": "!chatInputFocused" },
-      { "command": "dshCursorkit.editCode", "key": "ctrl+k", "when": "editorTextFocus && !suggestWidgetVisible" },
-      { "command": "dshCursorkit.toggleTab", "key": "ctrl+alt+t", "when": "editorTextFocus" }
+      {
+        "command": "dshCursorkit.openChat",
+        "key": "ctrl+alt+c",
+        "when": "!chatInputFocused"
+      },
+      {
+        "command": "dshCursorkit.editCode",
+        "key": "ctrl+k",
+        "when": "editorTextFocus && !suggestWidgetVisible"
+      },
+      {
+        "command": "dshCursorkit.toggleTab",
+        "key": "ctrl+alt+t",
+        "when": "editorTextFocus"
+      }
     ],
     "viewsContainers": {
       "activitybar": [
-        { "id": "dshCursorkit", "title": "DSH CursorKit", "icon": "$(sparkle)" }
+        {
+          "id": "dshCursorkit",
+          "title": "DSH CursorKit",
+          "icon": "$(sparkle)"
+        }
       ]
     },
     "views": {
       "dshCursorkit": [
-        { "id": "dshCursorkit.chat", "name": "Chat", "type": "webview" },
-        { "id": "dshCursorkit.sessions", "name": "Sessions", "icon": "$(list-unordered)" }
+        {
+          "id": "dshCursorkit.chat",
+          "name": "Chat",
+          "type": "webview"
+        },
+        {
+          "id": "dshCursorkit.sessions",
+          "name": "Sessions",
+          "icon": "$(list-unordered)"
+        }
       ]
     },
     "configuration": {
@@ -68,7 +124,11 @@
         },
         "dshCursorkit.permission.mode": {
           "type": "string",
-          "enum": ["danger-full-access", "workspace-write", "default"],
+          "enum": [
+            "danger-full-access",
+            "workspace-write",
+            "default"
+          ],
           "default": "danger-full-access",
           "description": "dsh 权限模式（Cursor 风格：默认自动执行）"
         }

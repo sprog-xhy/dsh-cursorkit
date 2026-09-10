@@ -1,0 +1,14 @@
+# vsce 打包忽略（V2-DECISIONS D21）
+node_modules/**
+webview/node_modules/**
+webview/src/**
+webview/vite.config.ts
+webview/tsconfig.json
+webview/package.json
+test/**
+src/**
+esbuild.mjs
+tsconfig.json
+# assets 保留 icon（其余已排除）
+.gitignore
+*.map
