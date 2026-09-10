@@ -7,14 +7,17 @@
  * - 历史不可得时退化为从头订阅（不阻塞）
  * - ChatController 的消息顺序：先 session.switched（前端清空）再回放历史
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import type { Transport, SubscribeOptions, Disposer } from '@dsh-cursorkit/client';
 import { CkpService } from '../src/ckp.ts';
 import { ChatController } from '../src/chat-controller.ts';
 import { SidecarManager } from '../src/sidecar.ts';
 import { VirtualDocProvider } from '../src/virtual-docs.ts';
 import type { ExtensionContext } from './stubs/vscode.ts';
-import { Uri } from './stubs/vscode.ts';
+import { Uri, setConfig } from './stubs/vscode.ts';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const HISTORY_EVENTS = [
   { seq: 1, ts: 1, sessionId: 's1', type: 'message.user', text: '早先的问题' },
@@ -75,6 +78,11 @@ function fakeContext(): ExtensionContext {
     globalState: { get: (_k: string, d?: unknown) => d, update: async () => undefined },
   };
 }
+
+// 测试绝不能写真实 ~/.dsh-cursorkit（SidecarManager 构造时会绑定活动日志路径）
+beforeAll(() => {
+  setConfig('dshCursorkit.sidecar.dshHome', mkdtempSync(join(tmpdir(), 'ck-hist-')));
+});
 
 describe('CkpService.switchSession 历史恢复', () => {
   it('拉取历史并派发给监听（顺序一致）', async () => {
