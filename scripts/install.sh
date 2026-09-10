@@ -39,6 +39,8 @@ command -v pnpm >/dev/null 2>&1 || fail "未找到 pnpm。请先安装：npm i -
 cd "$REPO_ROOT"
 pnpm -r build >/dev/null 2>&1 || true
 cd "$EXT_DIR"
+# vsce 打包需要 LICENSE（仓库 .gitignore 排除了产物，install 时从根复制）
+[ -f LICENSE.txt ] || cp "$REPO_ROOT/LICENSE" LICENSE.txt
 node esbuild.mjs >/dev/null 2>&1
 cd webview && pnpm build >/dev/null 2>&1
 cd "$EXT_DIR"
