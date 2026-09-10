@@ -27,7 +27,7 @@ export interface MethodParams {
   'session.get': { id: string };
   'session.fork': { id: string; fromSeq?: number };
   'session.close': { id: string };
-  'session.send': { id: string; text: string; attachments?: unknown[]; mentions?: string[] };
+  'session.send': { id: string; text: string; attachments?: unknown[]; mentions?: string[]; mode?: 'ask' | 'edit' | 'agent' };
   'session.cancel': { id: string };
   'approval.respond': { approvalId: string; decision: ApprovalDecision };
   'workspace.list': Record<string, never>;

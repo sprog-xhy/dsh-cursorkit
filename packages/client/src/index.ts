@@ -65,7 +65,11 @@ export class CkpClient {
     return this.call('session.fork', { id, fromSeq });
   }
 
-  sessionSend(id: string, text: string, opts?: { attachments?: unknown[]; mentions?: string[] }): Promise<{ messageId: string }> {
+  sessionSend(
+    id: string,
+    text: string,
+    opts?: { attachments?: unknown[]; mentions?: string[]; mode?: 'ask' | 'edit' | 'agent' },
+  ): Promise<{ messageId: string }> {
     return this.call('session.send', { id, text, ...opts });
   }
 

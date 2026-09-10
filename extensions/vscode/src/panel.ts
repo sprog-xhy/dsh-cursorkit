@@ -81,7 +81,10 @@ export class ChatPanel {
               message: `已自动附加选中文本（${ctx.selection.length} 字符）`,
             });
           }
-          await this.ckp.sendMessage(text, { mentions: ctx.mentions });
+          await this.ckp.sendMessage(text, {
+            mentions: ctx.mentions,
+            mode: (msg.mode as 'ask' | 'edit' | 'agent') ?? 'agent',
+          });
         } catch (err) {
           void this.post({ type: 'error', message: (err as Error).message });
         }

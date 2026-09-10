@@ -172,8 +172,14 @@ export class Router {
     this.register('session.send', async (params) => {
       const s = svc.sessions.get(params.id);
       if (!s) throw new CkpError('SESSION_NOT_FOUND', `session ${params.id} not found`);
-      // @提及文件注入：mentions 里以 file: 前缀的条目读取内容并拼进消息（V2-DECISIONS D18）
-      let text = params.text;
+      // 模式提示（V2-DECISIONS D15）：Ask=纯问答；Edit=聚焦修改；Agent=默认多文件
+      const mode = params.mode ?? 'agent';
+      const modeHint: Record<'ask' | 'edit' | 'agent', string> = {
+        ask: '\n\n[模式: Ask] 只回答问题或解释代码，不要修改任何文件，不要调用写文件工具。',
+        edit: '\n\n[模式: Edit] 专注修改用户指出的内容。先说明要改什么，改动要最小化、精确。',
+        agent: '',
+      };
+      let text = `${params.text}${modeHint[mode]}`;
       const mentions = params.mentions ?? [];
       const fileMentions = mentions.filter((m) => m.startsWith('file:')).map((m) => m.slice(5));
       const cwd = s.header?.cwd;

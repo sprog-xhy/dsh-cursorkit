@@ -96,6 +96,7 @@ function App(): JSX.Element {
   const [showReview, setShowReview] = useState(false);
   const [checkpoints, setCheckpoints] = useState<CheckpointInfo[]>([]);
   const [showCheckpoints, setShowCheckpoints] = useState(false);
+  const [mode, setMode] = useState<'ask' | 'edit' | 'agent'>('agent');
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -231,7 +232,7 @@ function App(): JSX.Element {
   function send(): void {
     const text = input.trim();
     if (!text) return;
-    post({ type: 'send', text });
+    post({ type: 'send', text, mode });
     setInput('');
   }
 
@@ -327,6 +328,24 @@ function App(): JSX.Element {
             }
           }}
         />
+        <div className="mode-bar">
+          {(['ask', 'edit', 'agent'] as const).map((m) => (
+            <button
+              key={m}
+              className={`mode-btn ${mode === m ? 'active' : ''}`}
+              onClick={() => setMode(m)}
+              title={
+                m === 'ask'
+                  ? 'Ask：只问答，不修改文件'
+                  : m === 'edit'
+                    ? 'Edit：聚焦修改指定内容'
+                    : 'Agent：多文件自动执行'
+              }
+            >
+              {m === 'ask' ? 'Ask' : m === 'edit' ? 'Edit' : 'Agent'}
+            </button>
+          ))}
+        </div>
         <div className="composer-actions">
           {busy && (
             <button className="btn-stop" onClick={stop}>

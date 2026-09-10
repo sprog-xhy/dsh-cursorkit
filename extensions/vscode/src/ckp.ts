@@ -53,10 +53,14 @@ export class CkpService {
     return s;
   }
 
-  async sendMessage(text: string, opts?: { mentions?: string[] }): Promise<void> {
+  async sendMessage(
+    text: string,
+    opts?: { mentions?: string[]; mode?: 'ask' | 'edit' | 'agent' },
+  ): Promise<void> {
     if (!this.client || !this.activeSessionId) throw new Error('会话未就绪');
     await this.client.sessionSend(this.activeSessionId, text, {
       mentions: opts?.mentions ?? [],
+      mode: opts?.mode,
     });
   }
 
