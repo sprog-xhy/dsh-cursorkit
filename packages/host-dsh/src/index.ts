@@ -196,6 +196,8 @@ export function apply(ctx: HostCtx, config: HostConfig = {}): void {
   // 2. Start the RPC server via ctx.effect (auto-closed on unload).
   const bus = new EventBus();
   const approvals = new ApprovalBridge({ bus });
+  /** 会话 → 模型（内存；dsh session 本身不持久化模型选择）。 */
+  const sessionModels = new Map<string, string>();
   // Cross-process ring snapshot: surviving a host restart with incremental
   // replay instead of forcing every client to full-rebuild.
   const busSnapshotFile = `${tokenFile}.bus.json`;
@@ -233,6 +235,7 @@ export function apply(ctx: HostCtx, config: HostConfig = {}): void {
           sessions: sessionsCompat(ctx),
           agents: agentsCompat(ctx),
           appVersion: report.dshVersion,
+          sessionModels,
         });
 
         if (disposed) {

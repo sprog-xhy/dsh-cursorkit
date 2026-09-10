@@ -203,15 +203,17 @@ export class CkpService {
   async switchSession(id: string): Promise<void> {
     if (!this.client) return;
     let fromSeq = 0;
+    let model: string | null = null;
     try {
       const detail = await this.client.sessionGet(id);
       fromSeq = detail.lastSeq ?? 0;
+      // 协议 Session.model 现在由 host 回读（内存记录），可用则精确跟踪
+      model = (detail as { model?: string }).model ?? null;
     } catch {
-      /* 退化：从头回放 */
+      /* 退化：从头回放 + 模型未知 */
     }
     this.activeSessionId = id;
-    // 切换来的会话模型未知（协议未返回 model）→ 不做模型比较，避免误重建
-    this.activeSessionModel = null;
+    this.activeSessionModel = model;
     this.attachEvents(id, fromSeq);
   }
 

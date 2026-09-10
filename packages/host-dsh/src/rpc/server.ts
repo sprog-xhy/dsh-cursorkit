@@ -42,6 +42,8 @@ export interface ServerDeps {
   agents: AgentRegistryView;
   /** Return the app version string. */
   appVersion: string;
+  /** 会话 → 模型（内存记录，供 session.get/list 回读）。 */
+  sessionModels?: Map<string, string>;
 }
 
 export interface ServerHandle {
@@ -100,7 +102,15 @@ function readBody(req: IncomingMessage): Promise<unknown> {
 
 export function startServer(deps: ServerDeps): Promise<ServerHandle> {
   const { token, capabilities, bus, approvals, sessions, agents } = deps;
-  const router = new Router({ sessions, agents, approvals, bus, capabilities, dshVersion: deps.appVersion });
+  const router = new Router({
+    sessions,
+    agents,
+    approvals,
+    bus,
+    capabilities,
+    dshVersion: deps.appVersion,
+    sessionModels: deps.sessionModels,
+  });
   const startedAt = Date.now();
 
   const server: Server = createServer(async (req, res) => {

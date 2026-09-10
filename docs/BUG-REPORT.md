@@ -63,8 +63,10 @@
 
 ## 六、遗留（未修，需产品决策）
 
-1. **协议未暴露模型字段**：`session.get` 不返回 `model`，因此从会话列表切换进来的会话无法判断其模型，
-   只能标记为「未知」。建议后续在 CKP `Session` 上加 `model` 字段（需 ADR）。
+1. ~~协议未暴露模型字段~~ **已解决**：host 侧新增 `sessionModels` 内存映射（`session.create` 时记录），
+   `session.get`/`session.list` 回读 `Session.model`；扩展切换会话时即可精确跟踪模型。
+   局限：sidecar 重启后该映射丢失（回读为 undefined），此时退化为「模型未知」不误重建会话。
+   真实 sidecar 已验证：`session.get` 返回 `wps/moonshot/kimi-k2.7-code`。
 2. **thinking 事件仍是逐 delta 推送**：已按 `role: 'thinking'` 折叠渲染，但一次思考会不断更新同一块，
    长思考过程无法分段；如需分段需协议侧给 turn/step 边界。
 3. **tool 事件与文本的时序**：agent 在同一轮里「文本 → 工具 → 文本」会形成两个 assistant 块

@@ -33,6 +33,8 @@ export interface RouterServices {
   bus: EventBus;
   capabilities: CapabilityReport;
   dshVersion: string;
+  /** 会话 → 模型（内存记录；重启后丢失，回读为 undefined）。 */
+  sessionModels?: Map<string, string>;
 }
 
 type Handler<M extends CkpMethodName> = (
@@ -92,7 +94,7 @@ export class Router {
       return svc.sessions.list().map((s) => ({
         id: s.id,
         workspace: s.header?.cwd ?? '',
-        model: undefined,
+        model: svc.sessionModels?.get(s.id),
         createdAt: s.header?.createdAt ?? Date.now(),
         updatedAt: Date.now(),
         status: 'idle' as const,
@@ -114,23 +116,23 @@ export class Router {
       // 或 `provider/model`（如 wps/kimi-k2.7-code，模型 id 需在 settings 里存在）。
       // dsh 的 agentOptions.model 需要的是【模型完整 id】（如 moonshot/kimi-k2.7-code），
       // provider 单独传。settings.yaml 的 wps providers 里模型 id 自带供应商前缀。
-      const model = params.model ?? 'wps/moonshot/kimi-k2.7-code';
-      const [provider, ...modelParts] = model.split('/');
-      const modelId = modelParts.join('/');
+      const model = parseModelRef(params.model);
       await svc.agents.create({
         sessionId,
         meta: { cwd: params.workspace },
         agentOptions: {
-          provider,
-          model: modelId,
+          ...(model.provider ? { provider: model.provider } : {}),
+          model: model.model,
           maxTokens: 8192,
         },
       });
+      // 记录会话模型（协议 Session.model 已有字段，供 session.get/list 回读）
+      svc.sessionModels?.set(sessionId, model.full);
       const s = svc.sessions.get(sessionId);
       return {
         id: sessionId,
         workspace: params.workspace,
-        model: params.model,
+        model: model.full,
         createdAt: s?.header?.createdAt ?? Date.now(),
         updatedAt: Date.now(),
         status: 'idle' as const,
@@ -143,6 +145,7 @@ export class Router {
       return {
         id: s.id,
         workspace: s.header?.cwd ?? '',
+        model: svc.sessionModels?.get(s.id),
         createdAt: s.header?.createdAt ?? Date.now(),
         updatedAt: Date.now(),
         status: 'idle' as const,
@@ -180,7 +183,7 @@ export class Router {
         agent:
           '\n\n[模式: Agent/Composer] 这是多文件任务。开始前先输出简明计划：用编号列表列出要改动的文件与每处改动要点；然后逐项执行，每完成一个文件等待工具结果。',
       };
-      let text = `${params.text}${modeHint[mode]}`;
+      let text = `${params.text}${modeHint[mode] ?? ''}`;
       const mentions = params.mentions ?? [];
       const fileMentions = mentions.filter((m) => m.startsWith('file:')).map((m) => m.slice(5));
       const cwd = s.header?.cwd;
@@ -447,4 +450,20 @@ export function parseSettingsProviders(raw: string): {
     }
   }
   return out;
+}
+
+/** 默认模型（provider/model-id）。 */
+export const DEFAULT_MODEL = 'wps/moonshot/kimi-k2.7-code';
+
+/**
+ * 解析模型引用 `provider/model-id`（model-id 可含 '/'）。
+ * 无 '/' 时视为「只有模型 id、无 provider」（原先会产出 provider=整串 + model='' 的坏配置）。
+ */
+export function parseModelRef(ref?: string): { provider?: string; model: string; full: string } {
+  const raw = (ref ?? '').trim() || DEFAULT_MODEL;
+  const slash = raw.indexOf('/');
+  if (slash <= 0) return { model: raw, full: raw };
+  const provider = raw.slice(0, slash);
+  const model = raw.slice(slash + 1);
+  return { provider, model, full: raw };
 }
