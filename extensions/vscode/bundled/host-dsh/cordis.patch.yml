@@ -1,0 +1,12 @@
+# dsh-cursorkit host plugin — cordis patch overlay (bundled with the package)
+#
+# 注意：host-dsh 包的 cordis.patch.yml 会被 dsh 作为 bundle patch 自动加载，
+# 因此这里【只】声明 host 插件本身。agent-loop 的显式加载放在 profile 层的
+# cordis.patch.yml（见 extensions/vscode/src/sidecar.ts ensureProfile）。
+- insert:
+    - id: cursorkit-host
+      name: '@dsh-cursorkit/host-dsh'
+      inject: [sessions, agents, agentLoop, approval]
+      config:
+        port: 0 # 0 = auto-assign; actual port + token go to runtime.json
+        tokenFile: '$DSH_HOME/.cursorkit/runtime.json'

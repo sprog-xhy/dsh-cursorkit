@@ -16,8 +16,12 @@ coverage/
 logs/
 
 # Editor
-.vscode/
 .idea/
+# 保留调试配置（F5 运行扩展用），忽略本地状态
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+.vscode-dev-userdata/
 .DS_Store
 
 # dsh dev home

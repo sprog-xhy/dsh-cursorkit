@@ -1,0 +1,26 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "运行 DSH CursorKit（扩展开发宿主）",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/extensions/vscode",
+        "--user-data-dir=${workspaceFolder}/.vscode-dev-userdata"
+      ],
+      "outFiles": ["${workspaceFolder}/extensions/vscode/dist/**/*.js"],
+      "preLaunchTask": "dsh-cursorkit: build",
+      "presentation": { "group": "1-run", "order": 1 }
+    },
+    {
+      "name": "仅构建扩展",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/extensions/vscode/esbuild.mjs",
+      "cwd": "${workspaceFolder}/extensions/vscode",
+      "console": "integratedTerminal",
+      "presentation": { "group": "2-build", "order": 1 }
+    }
+  ]
+}

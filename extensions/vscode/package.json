@@ -135,6 +135,11 @@
           ],
           "default": "danger-full-access",
           "description": "dsh 权限模式（Cursor 风格：默认自动执行）"
+        },
+        "dshCursorkit.sidecar.hostDshPath": {
+          "type": "string",
+          "default": "",
+          "description": "自定义 host-dsh 包目录（留空则自动：开发仓库 packages/ 或扩展内置 bundled/）"
         }
       }
     }
@@ -143,7 +148,8 @@
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "package": "vsce package --no-dependencies"
+    "package": "node scripts/bundle-deps.mjs && vsce package --no-dependencies",
+    "bundle:deps": "node scripts/bundle-deps.mjs"
   },
   "devDependencies": {
     "@dsh-cursorkit/client": "workspace:*",

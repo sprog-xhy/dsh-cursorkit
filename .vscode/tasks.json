@@ -1,0 +1,14 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "dsh-cursorkit: build",
+      "type": "shell",
+      "command": "pnpm -r build && cd extensions/vscode && node esbuild.mjs && cd webview && pnpm build",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "silent", "panel": "shared" },
+      "group": { "kind": "build", "isDefault": true }
+    }
+  ]
+}

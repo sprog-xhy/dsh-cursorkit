@@ -37,10 +37,61 @@ export type SidecarStatus = 'starting' | 'ready' | 'stopped' | 'error';
 /** sidecar 状态监听器。 */
 export type SidecarStatusListener = (status: SidecarStatus, info?: RuntimeInfo) => void;
 
-/** 从环境读取宿主包根目录（monorepo 开发）或发布后 node_modules。 */
-function repoRoot(): string {
-  // dist/extension.js → extensions/vscode/dist → repo root
-  return resolve(__dirname, '..', '..', '..');
+/**
+ * 解析 host-dsh / protocol 包目录。
+ *
+ * 两种运行形态：
+ * - **开发（F5）**：扩展从仓库运行 → `<repo>/packages/{host-dsh,protocol}`
+ * - **已安装 vsix**：仓库不在 → 使用随包内置的副本 `<ext>/bundled/{host-dsh,protocol}`
+ *
+ * 历史缺陷：原先一律用 `resolve(__dirname,'..','..','..')`，安装后解析成
+ * `~/.vscode`（不存在 packages/）→ 依赖同步失败 → sidecar 永久起不来。
+ */
+export interface PackageDirs {
+  hostDir: string;
+  protocolDir: string;
+}
+
+/**
+ * 从候选目录中挑出第一个可用的包目录（纯函数，便于测试）。
+ * 判定：两个目录都必须有 package.json。
+ */
+export function pickPackageDirs(
+  candidates: PackageDirs[],
+  has: (path: string) => boolean = existsSync,
+): PackageDirs | null {
+  for (const c of candidates) {
+    if (has(join(c.hostDir, 'package.json')) && has(join(c.protocolDir, 'package.json'))) return c;
+  }
+  return null;
+}
+
+/** 解析 host-dsh / protocol 包目录（开发仓库 或 内置副本）。 */
+export function resolvePackageDirs(override?: string): PackageDirs {
+  if (override && override.trim()) {
+    const hostDir = resolve(override.trim());
+    return { hostDir, protocolDir: resolve(hostDir, '..', 'protocol') };
+  }
+  const extDir = resolve(__dirname, '..');
+  const picked = pickPackageDirs([
+    // 开发：extensions/vscode/dist → 仓库根
+    {
+      hostDir: resolve(__dirname, '..', '..', '..', 'packages', 'host-dsh'),
+      protocolDir: resolve(__dirname, '..', '..', '..', 'packages', 'protocol'),
+    },
+    // 已安装 vsix：随包内置副本（scripts/bundle-deps.mjs 生成）
+    {
+      hostDir: join(extDir, 'bundled', 'host-dsh'),
+      protocolDir: join(extDir, 'bundled', 'protocol'),
+    },
+  ]);
+  if (!picked) {
+    throw new Error(
+      '找不到 host-dsh / protocol 包（已尝试仓库 packages/ 与内置 bundled/）。\n' +
+        '可在设置 dshCursorkit.sidecar.hostDshPath 指定 host-dsh 目录。',
+    );
+  }
+  return picked;
 }
 
 export class SidecarManager implements vscode.Disposable {
@@ -176,9 +227,9 @@ export class SidecarManager implements vscode.Disposable {
     const dir = profileDir(this.dshHome);
     const pkgPath = join(dir, 'package.json');
     const patchPath = join(dir, PATCH_FILENAME);
-    const absRepo = repoRoot();
-    const hostPath = join(absRepo, 'packages', 'host-dsh');
-    const protocolPath = join(absRepo, 'packages', 'protocol');
+    const { hostDir, protocolDir } = this.packageDirs();
+    const hostPath = hostDir;
+    const protocolPath = protocolDir;
 
     const needPkg = !existsSync(pkgPath);
     let needPatch = !existsSync(patchPath);
@@ -207,13 +258,22 @@ export class SidecarManager implements vscode.Disposable {
     await this.syncDeps(dir);
   }
 
+  /** 包目录（支持设置覆盖，便于自定义仓库位置）。 */
+  private packageDirs(): { hostDir: string; protocolDir: string } {
+    const override = vscode.workspace
+      .getConfiguration('dshCursorkit.sidecar')
+      .get<string>('hostDshPath', '');
+    return resolvePackageDirs(override);
+  }
+
   /** 同步 profile 依赖（缺失或源码变化时安装；共享实现，脚本亦复用）。 */
   private async syncDeps(dir: string): Promise<void> {
     try {
+      const { hostDir, protocolDir } = this.packageDirs();
       const res = await syncProfileDeps({
         dir,
-        hostDir: join(repoRoot(), 'packages', 'host-dsh'),
-        protocolDir: join(repoRoot(), 'packages', 'protocol'),
+        hostDir,
+        protocolDir,
         log: (m) => this.log(m),
       });
       this.log(res.installed ? 'profile deps installed' : 'profile deps ok');

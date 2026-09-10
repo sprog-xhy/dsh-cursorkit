@@ -1,0 +1,312 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sprog-xhy/dsh-cursorkit/schema/methods.schema.json",
+  "title": "CKP methods",
+  "description": "Snapshot of the CKP method table. Keep in sync with packages/protocol/src/methods.ts (the single source of truth). CI snapshot test verifies this file.",
+  "type": "object",
+  "properties": {
+    "session.list": {
+      "type": "object"
+    },
+    "session.create": {
+      "type": "object",
+      "required": [
+        "workspace"
+      ],
+      "properties": {
+        "workspace": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "worktree": {
+          "type": "string"
+        }
+      }
+    },
+    "session.get": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      }
+    },
+    "session.fork": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "fromSeq": {
+          "type": "number"
+        }
+      }
+    },
+    "session.close": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      }
+    },
+    "session.send": {
+      "type": "object",
+      "required": [
+        "id",
+        "text"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "attachments": {
+          "type": "array"
+        },
+        "mentions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "session.cancel": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      }
+    },
+    "approval.respond": {
+      "type": "object",
+      "required": [
+        "approvalId",
+        "decision"
+      ],
+      "properties": {
+        "approvalId": {
+          "type": "string"
+        },
+        "decision": {
+          "enum": [
+            "once",
+            "session",
+            "always",
+            "deny"
+          ]
+        }
+      }
+    },
+    "workspace.list": {
+      "type": "object"
+    },
+    "workspace.select": {
+      "type": "object",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      }
+    },
+    "model.list": {
+      "type": "object"
+    },
+    "model.select": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      }
+    },
+    "config.get": {
+      "type": "object",
+      "properties": {
+        "keys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "config.set": {
+      "type": "object",
+      "required": [
+        "patch"
+      ],
+      "properties": {
+        "patch": {
+          "type": "object"
+        }
+      }
+    },
+    "plugin.list": {
+      "type": "object"
+    },
+    "skill.list": {
+      "type": "object"
+    },
+    "mcp.list": {
+      "type": "object"
+    },
+    "mcp.add": {
+      "type": "object",
+      "required": [
+        "name",
+        "transport"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "transport": {
+          "enum": [
+            "stdio",
+            "streamable-http"
+          ]
+        },
+        "command": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      }
+    },
+    "mcp.remove": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      }
+    },
+    "checkpoint.list": {
+      "type": "object",
+      "required": [
+        "sessionId"
+      ],
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        }
+      }
+    },
+    "checkpoint.restore": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      }
+    },
+    "worktree.list": {
+      "type": "object"
+    },
+    "worktree.create": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "base": {
+          "type": "string"
+        }
+      }
+    },
+    "worktree.remove": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "diff.get": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        },
+        "checkpointId": {
+          "type": "string"
+        }
+      }
+    },
+    "context.get": {
+      "type": "object",
+      "required": [
+        "sessionId"
+      ],
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "selection": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        }
+      }
+    },
+    "session.history": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        }
+      }
+    }
+  }
+}
