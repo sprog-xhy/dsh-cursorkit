@@ -14,6 +14,7 @@ import type {
   ApprovalDecision,
   FileChange,
   Checkpoint,
+  ModelInfo,
 } from '@dsh-cursorkit/protocol';
 import type { Transport } from './transport/types.ts';
 import type { EventStore } from './store/create-store.ts';
@@ -107,6 +108,10 @@ export class CkpClient {
 
   checkpointRestore(checkpointId: string): Promise<Session> {
     return this.call('checkpoint.restore', { id: checkpointId });
+  }
+
+  modelList(): Promise<ModelInfo[]> {
+    return this.call('model.list', {});
   }
 
   // --- event stream + store ---

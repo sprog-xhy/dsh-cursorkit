@@ -80,6 +80,11 @@ export class CkpService {
     return this.client.sessionList();
   }
 
+  async listModels() {
+    if (!this.client) return [];
+    return this.client.modelList();
+  }
+
   async switchSession(id: string): Promise<void> {
     if (!this.client) return;
     this.activeSessionId = id;

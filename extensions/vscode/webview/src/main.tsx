@@ -58,6 +58,10 @@ interface SessionSwitchedMsg {
   type: 'session.switched';
   sessionId: string;
 }
+interface ModelListMsg {
+  type: 'model.list';
+  models: { id: string; name: string; provider?: string }[];
+}
 type Inbound =
   | SidecarStatusMsg
   | InitMsg
@@ -68,7 +72,8 @@ type Inbound =
   | CheckpointOpenMsg
   | CheckpointListMsg
   | SessionListMsg
-  | SessionSwitchedMsg;
+  | SessionSwitchedMsg
+  | ModelListMsg;
 
 // --- 消息渲染模型 ---
 interface ChatItem {
@@ -110,6 +115,8 @@ function App(): JSX.Element {
   const [sessions, setSessions] = useState<{ id: string; workspace: string }[]>([]);
   const [activeSessionId, setActiveSessionId] = useState('');
   const [showSessions, setShowSessions] = useState(false);
+  const [models, setModels] = useState<{ id: string; name: string; provider?: string }[]>([]);
+  const [showModels, setShowModels] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -154,6 +161,9 @@ function App(): JSX.Element {
           setActiveSessionId(msg.sessionId);
           // 切换会话后重新拉 checkpoint 列表
           post({ type: 'checkpoint.list', sessionId: msg.sessionId });
+          break;
+        case 'model.list':
+          setModels(msg.models);
           break;
       }
     };
@@ -253,7 +263,7 @@ function App(): JSX.Element {
   function send(): void {
     const text = input.trim();
     if (!text) return;
-    post({ type: 'send', text, mode });
+    post({ type: 'send', text, mode, model });
     setInput('');
   }
 
@@ -299,9 +309,38 @@ function App(): JSX.Element {
         >
           {changes.length > 0 ? `改动 ${changes.length}` : '改动'}
         </button>
-        <span className="model">{model}</span>
+        <button
+          className="btn-review"
+          onClick={() => {
+            setShowModels((v) => !v);
+            if (!showModels) post({ type: 'model.list' });
+          }}
+          title="选择模型（provider/model）"
+        >
+          {model.split('/').pop() || model}
+        </button>
         <span className="sidecar">{sidecarInfo}</span>
       </header>
+
+      {showModels && (
+        <div className="review-panel">
+          <div className="review-title">模型（点击切换；新会话生效）</div>
+          {models.length === 0 && <div className="review-empty">无可用模型（检查 settings.yaml）</div>}
+          {models.map((m) => (
+            <div key={m.id} className="review-item">
+              <span className="review-path">{m.id}</span>
+              <span className="review-stat">{m.provider}</span>
+              <button
+                onClick={() => {
+                  setModel(`wps/${m.id}`);
+                  setShowModels(false);
+                }}
+              >
+                用
+              </button>            </div>
+          ))}
+        </div>
+      )}
 
       {showSessions && (
         <div className="review-panel">

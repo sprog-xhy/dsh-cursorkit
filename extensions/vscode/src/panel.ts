@@ -71,7 +71,8 @@ export class ChatPanel {
         if (!text.trim()) return;
         try {
           const workspace = this.currentWorkspace();
-          await this.ckp.ensureSession(workspace, this.defaultModel());
+          const selectedModel = String(msg.model ?? '').trim() || this.defaultModel();
+          await this.ckp.ensureSession(workspace, selectedModel);
           // 上下文注入（V2-DECISIONS D18）：@file 提及 + 当前选中自动携带
           const ctx = buildInjectedContext(text, workspace);
           if (ctx.selection && ctx.files.length === 0) {
@@ -118,6 +119,15 @@ export class ChatPanel {
           void this.post({ type: 'session.list', sessions });
         } catch (err) {
           void this.post({ type: 'error', message: `会话列表读取失败: ${(err as Error).message}` });
+        }
+        return;
+      }
+      case 'model.list': {
+        try {
+          const models = await this.ckp.listModels();
+          void this.post({ type: 'model.list', models });
+        } catch (err) {
+          void this.post({ type: 'error', message: `模型列表读取失败: ${(err as Error).message}` });
         }
         return;
       }

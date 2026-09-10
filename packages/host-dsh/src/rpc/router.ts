@@ -11,6 +11,7 @@ import {
   type ResultOf,
 } from '@dsh-cursorkit/protocol';
 import { readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import type { ApprovalBridge } from '../bridge/approval-bridge.ts';
 import type { CapabilityReport } from '../capability.ts';
@@ -294,7 +295,17 @@ export class Router {
 
     this.register('workspace.select', (params) => ({ path: params.path, name: params.path.split('/').pop() ?? params.path }));
 
-    this.register('model.list', () => []);
+    this.register('model.list', () => {
+      // 从 settings.yaml 读取 provider×model 列表（V2-DECISIONS D17）。
+      // 格式：llm-pi-ai.providers.<provider>.models[].id
+      try {
+        const raw = readFileSync(settingsFile(), 'utf8');
+        const providers = parseSettingsProviders(raw);
+        return providers;
+      } catch {
+        return [];
+      }
+    });
     this.register('model.select', () => undefined);
     this.register('config.get', () => ({}));
     this.register('config.set', (params) => params.patch);
@@ -377,4 +388,64 @@ export class Router {
       return [];
     });
   }
+}
+
+/** settings.yaml 路径（$DSH_HOME/settings.yaml，环境变量解析）。 */
+function settingsFile(): string {
+  const home = process.env.DSH_HOME ?? resolve(process.env.HOME ?? '/', '.dsh-cursorkit');
+  return resolve(home, 'settings.yaml');
+}
+
+/**
+ * 轻量解析 settings.yaml 的 llm-pi-ai.providers 段 → ModelInfo[]。
+ * 只做缩进结构扫描（settings.yaml 由 dsh 管理、格式稳定），不引 YAML 依赖。
+ */
+export function parseSettingsProviders(raw: string): {
+  id: string;
+  name: string;
+  provider: string;
+}[] {
+  const out: { id: string; name: string; provider: string }[] = [];
+  const lines = raw.split('\n');
+  let inProviders = false;
+  let currentProvider = '';
+  let inModels = false;
+
+  for (const line of lines) {
+    const indent = line.match(/^\s*/)?.[0].length ?? 0;
+    const text = line.trim();
+    if (text === '' || text.startsWith('#')) continue;
+
+    // llm-pi-ai:
+    if (indent === 0 && text === 'llm-pi-ai:') {
+      inProviders = false;
+      continue;
+    }
+    // providers:
+    if (indent === 2 && text === 'providers:') {
+      inProviders = true;
+      inModels = false;
+      continue;
+    }
+    if (!inProviders) continue;
+    // <provider>:
+    if (indent === 4 && text.endsWith(':')) {
+      currentProvider = text.slice(0, -1);
+      inModels = false;
+      continue;
+    }
+    // models:
+    if (indent === 6 && text === 'models:') {
+      inModels = true;
+      continue;
+    }
+    // - id: xxx
+    if (inModels && indent === 8 && text.startsWith('- id:')) {
+      const id = text.replace('- id:', '').trim();
+      if (id) {
+        out.push({ id, name: id, provider: currentProvider });
+      }
+    }
+  }
+  return out;
 }
