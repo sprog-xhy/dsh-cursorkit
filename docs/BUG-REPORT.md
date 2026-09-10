@@ -56,10 +56,26 @@
 
 ## 五、回归防线
 
-- `packages/*` 74 项测试全绿（未改动协议/内核）
-- 扩展 41 项测试：新增 `rules`（15，覆盖 frontmatter/globs/过滤/指纹）、
-  `text-utils`（10）、`model-name`（3，直接覆盖 P0-3）
-- 新增 `scripts/check-css-classes.mjs`：交叉检查「用了但没样式」的类名（本轮即抓到 `.disabled` 缺失与 2 处死 CSS）
+**测试总数：156 项全绿**（protocol 11 / client 14 / host-dsh 48 / fixtures 6 / 扩展 77）
+
+- host-dsh 48：新增 `model-ref`（5，覆盖 P0 级模型解析缺陷）
+- 扩展 77：
+  - `activation`（7）：**首次真正执行 `activate()`/`deactivate()`**（通过 `test/stubs/vscode.ts` 桩模块，
+    此前激活路径完全没有测试覆盖）
+  - `components-render`（29）：用 `react-dom/server` 渲染每个组件，覆盖状态分支、
+    DOM 上限省略、三种未就绪提示、工具状态色、五面板空态/数据态
+  - `rules`（15）：frontmatter / globs / 过滤 / 指纹
+  - `text-utils`（10）、`model-name`（3，直接覆盖 P0-3）、`sidecar`（5）、`review`（4）、`tab-completion`（4）
+- `scripts/check-css-classes.mjs`：交叉检查「用了但没样式」的类名
+  （本轮即抓到 `.composer-box.disabled` 缺失与 2 处死 CSS）
+- `scripts/verify-bugfixes.mjs`：真实 sidecar 协议层验证（6 项假设实测通过，
+  含 `session.get` 回读 model、`git show HEAD:` 可用、model.list 16 项均带 provider）
+
+## 五之二、环境限制（诚实说明）
+
+本环境无 GUI，**未在真实 VSCode 窗口里点击验证**。已做到的替代验证：
+类型检查（0 错误）、扩展/webview 构建、156 项自动化测试（含激活与组件渲染）、
+真实 dsh sidecar 的协议层实测。建议你在 VSCode 中按 F5 或安装 vsix 后实测一次。
 
 ## 六、遗留（未修，需产品决策）
 
