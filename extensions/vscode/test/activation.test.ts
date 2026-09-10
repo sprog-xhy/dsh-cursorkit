@@ -42,6 +42,7 @@ const EXPECTED_COMMANDS = [
   'dshCursorkit.openSettings',
   'dshCursorkit.checkpoints',
   'dshCursorkit.focusChatView',
+  'dshCursorkit.doctor',
 ];
 
 describe('extension activation', () => {

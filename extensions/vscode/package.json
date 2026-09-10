@@ -19,7 +19,9 @@
     "Programming Languages",
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
@@ -56,6 +58,11 @@
       {
         "command": "dshCursorkit.focusChatView",
         "title": "DSH CursorKit: 在侧边栏打开 Chat"
+      },
+      {
+        "command": "dshCursorkit.doctor",
+        "title": "DSH CursorKit: 自检 / 诊断",
+        "icon": "$(pulse)"
       }
     ],
     "keybindings": [
@@ -80,7 +87,7 @@
         {
           "id": "dshCursorkit",
           "title": "DSH CursorKit",
-          "icon": "$(sparkle)"
+          "icon": "assets/activity-icon.svg"
         }
       ]
     },
@@ -94,7 +101,7 @@
         {
           "id": "dshCursorkit.sessions",
           "name": "Sessions",
-          "icon": "$(list-unordered)"
+          "icon": "assets/activity-icon.svg"
         }
       ]
     },
@@ -142,7 +149,13 @@
           "description": "自定义 host-dsh 包目录（留空则自动：开发仓库 packages/ 或扩展内置 bundled/）"
         }
       }
-    }
+    },
+    "viewsWelcome": [
+      {
+        "view": "dshCursorkit.sessions",
+        "contents": "DSH CursorKit 已就绪。\n[打开 Chat 面板](command:dshCursorkit.openChat)\n[新建会话](command:dshCursorkit.newChat)\n[自检（诊断环境）](command:dshCursorkit.doctor)\n需要本机安装 dsh（0.1.1-rc.2）与 LLM 凭据。"
+      }
+    ]
   },
   "scripts": {
     "build": "node esbuild.mjs",

@@ -17,6 +17,9 @@ import { ChatPanel, SidebarChatViewProvider } from './panel.ts';
 import { VirtualDocProvider, VIRTUAL_SCHEME } from './virtual-docs.ts';
 import { runInlineEdit } from './edit-code.ts';
 import { TabCompletionProvider } from './tab-completion.ts';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { resolvePackageDirs } from './sidecar.ts';
 
 let sidecar: SidecarManager | null = null;
 let ckp: CkpService | null = null;
@@ -56,6 +59,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void vscode.commands.executeCommand('workbench.action.openSettings', 'dshCursorkit'),
     ),
     vscode.commands.registerCommand('dshCursorkit.checkpoints', () => void openCheckpoints()),
+    vscode.commands.registerCommand('dshCursorkit.doctor', () => void runDoctor(context)),
     vscode.commands.registerCommand('dshCursorkit.focusChatView', async () => {
       await vscode.commands.executeCommand('workbench.view.extension.dshCursorkit');
       await vscode.commands.executeCommand('dshCursorkit.chatView.focus');
@@ -74,6 +78,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(vscode.window.registerTreeDataProvider('dshCursorkit.sessions', tree));
   context.subscriptions.push(controller.onDidChangeSessions.event(() => tree.refresh()));
 
+  // --- 首次激活引导（只弹一次，避免打扰） ---
+  const WELCOME_KEY = 'dshCursorkit.welcomed';
+  try {
+    if (!context.globalState.get<boolean>(WELCOME_KEY)) {
+    void context.globalState.update(WELCOME_KEY, true);
+    void vscode.window
+      .showInformationMessage(
+        'DSH CursorKit 已就绪（以 dsh 为内核的 AI 编程助手）',
+        '在侧边栏打开',
+        '打开独立面板',
+        '自检',
+      )
+      .then((pick) => {
+        if (pick === '在侧边栏打开') {
+          void vscode.commands.executeCommand('workbench.view.extension.dshCursorkit');
+          void vscode.commands.executeCommand('dshCursorkit.chatView.focus');
+        } else if (pick === '打开独立面板') {
+          void vscode.commands.executeCommand('dshCursorkit.openChat');
+        } else if (pick === '自检') {
+          void vscode.commands.executeCommand('dshCursorkit.doctor');
+        }
+      });
+    }
+  } catch (err) {
+    // 首次引导失败绝不能影响激活
+    console.error('[dsh-cursorkit] welcome notice failed', err);
+  }
+
   // --- 自动启动 sidecar ---
   const autoStart = vscode.workspace.getConfiguration('dshCursorkit.sidecar').get<boolean>('autoStart', true);
   if (autoStart) {
@@ -81,6 +113,84 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void vscode.window.showErrorMessage(`DSH sidecar 启动失败：${err.message}`);
     });
   }
+}
+
+/**
+ * 自检 / 诊断：把关键环境信息写进输出面板并给出结论。
+ * 用户 "看不到效果" 时第一时间跑这个。
+ */
+async function runDoctor(context: vscode.ExtensionContext): Promise<void> {
+  try {
+    await runDoctorInner(context);
+  } catch (err) {
+    void vscode.window.showErrorMessage(`DSH 自检失败：${(err as Error).message}`);
+  }
+}
+
+async function runDoctorInner(context: vscode.ExtensionContext): Promise<void> {
+  const out = vscode.window.createOutputChannel('DSH Cursor Kit 自检');
+  out.show(true);
+  const line = (s: string): void => out.appendLine(s);
+  const yn = (b: boolean): string => (b ? '✅' : '❌');
+
+  line('=== DSH CursorKit 自检 ===');
+  line(`扩展版本：${String(context.extension.packageJSON.version ?? '?')}`);
+  line(`VSCode：${vscode.version}`);
+  line(`扩展路径：${context.extensionUri.fsPath}`);
+
+  // 包目录（开发仓库 / 内置副本）
+  let dirs: { hostDir: string; protocolDir: string } | null = null;
+  try {
+    dirs = resolvePackageDirs(
+      vscode.workspace.getConfiguration('dshCursorkit.sidecar').get<string>('hostDshPath', ''),
+    );
+    line(`host-dsh 包目录：${dirs.hostDir}`);
+    line(`protocol 包目录：${dirs.protocolDir}`);
+  } catch (err) {
+    line(`${yn(false)} 找不到 host-dsh / protocol：${(err as Error).message}`);
+  }
+
+  // dsh 可执行文件与版本
+  const dshBin = sidecar?.findDsh() ?? null;
+  line(`${yn(!!dshBin)} dsh 可执行文件：${dshBin ?? '未找到（需要 npm i -g @deepseek-ai/dsh@0.1.1-rc.2）'}`);
+  const home = sidecar?.dshHome ?? '(未知)';
+  line(`DSH_HOME：${home}`);
+  line(`${yn(existsSync(join(home, 'settings.yaml')))} settings.yaml（provider 配置）`);
+  line(`${yn(existsSync(join(home, '.credentials.yaml')))} .credentials.yaml（凭据）`);
+  const profileDirPath = join(home, 'profiles', 'cursorkit');
+  line(`${yn(existsSync(join(profileDirPath, 'cordis.patch.yml')))} profile：${profileDirPath}`);
+  line(
+    `${yn(existsSync(join(profileDirPath, 'node_modules', '@dsh-cursorkit', 'host-dsh', 'package.json')))} profile 依赖（host-dsh 已安装）`,
+  );
+
+  // sidecar 状态与连通性
+  const status = sidecar?.currentStatus ?? 'stopped';
+  const info = sidecar?.runtimeInfo ?? null;
+  line(`${info ? '✅' : '❌'} sidecar 状态：${status}${info ? `（pid=${info.pid} port=${info.port} dsh=${info.dshVersion}）` : ''}`);
+  if (ckp?.ready && info) {
+    try {
+      const models = await ckp.listModels();
+      line(`${models.length > 0 ? '✅' : '⚠️'} 可用模型：${models.length} 个（provider 读取自 settings.yaml）`);
+    } catch (err) {
+      line(`❌ CKP 调用失败：${(err as Error).message}`);
+    }
+  } else {
+    line('❌ CKP 未连接（可执行命令「DSH CursorKit: 启动 dsh sidecar」或重启窗口）');
+  }
+
+  // 已注册的命令与视图（确认 UI 入口存在）
+  const cmds = await vscode.commands.getCommands(true);
+  const ours = cmds.filter((c) => c.startsWith('dshCursorkit.'));
+  line(`已注册命令（${ours.length}）：${ours.join(', ')}`);
+  line(
+    `UI 入口：活动栏「DSH CursorKit」→ Chat / Sessions 视图；或命令面板输入 "DSH"；或快捷键 Ctrl+Alt+C`,
+  );
+
+  const ok = !!dshBin && !!info;
+  line(ok ? '=== 结论：环境就绪，可直接使用 ===' : '=== 结论：环境未就绪，见上面 ❌ 项 ===');
+  void vscode.window.showInformationMessage(
+    ok ? 'DSH CursorKit 自检通过：环境就绪' : 'DSH CursorKit 自检发现问题，详见「DSH CursorKit 自检」输出',
+  );
 }
 
 export function deactivate(): void {
