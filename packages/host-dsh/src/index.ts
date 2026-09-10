@@ -9,7 +9,7 @@
  * @module @dsh-cursorkit/host-dsh
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { probe, type CapabilityReport } from './capability.ts';
 import { startServer, type ServerDeps, type ServerHandle } from './rpc/server.ts';
 import { EventBus } from './rpc/sse.ts';
@@ -24,6 +24,7 @@ import { CKP_PROTOCOL_VERSION } from '@dsh-cursorkit/protocol';
 import { dirname, join } from 'node:path';
 import { SessionIndex, sessionIndexFile, cleanSessionTitle } from './session-index.ts';
 import { scanTitlesOnDisk } from './session-titles.ts';
+import { parseConfiguredDefaultModel, setConfiguredDefaultModel } from './rpc/router.ts';
 
 /** Public API surface — plugin entry plus the pieces a host harness needs to
  * test, embed, or extend the server. */
@@ -236,6 +237,19 @@ export function apply(ctx: HostCtx, config: HostConfig = {}): void {
         if (restoredBus) {
           await bus.clearSnapshot(busSnapshotFile);
           log.info?.(`[cursorkit] restored event bus snapshot: seq=${bus.lastSeq}, events=${bus.replayFrom(0)?.length ?? 0}`);
+        }
+
+        // 默认模型：跟随 dsh 配置（settings.yaml 的 agent-default-model.model），
+        // 不在扩展里硬编码 —— 否则用户改了 dsh 配置而扩展仍用旧默认。
+        try {
+          const settingsPath = join(dshHome, 'settings.yaml');
+          if (existsSync(settingsPath)) {
+            const configured = parseConfiguredDefaultModel(readFileSync(settingsPath, 'utf8'));
+            setConfiguredDefaultModel(configured);
+            if (configured) log?.info?.(`[cursorkit] 默认模型（来自 settings.yaml）：${configured}`);
+          }
+        } catch (err) {
+          log?.warn?.(`[cursorkit] 读取默认模型失败: ${String(err)}`);
         }
 
         // 历史会话标题回填（后台一次性）：标题捕获是后加的能力，

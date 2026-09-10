@@ -106,7 +106,7 @@
 ## 六、遗留项（第二轮已全部修复）
 
 1. ✅ **模型/会话元数据跨重启丢失** → 改为落盘 `SessionIndex`（并对旧 `session-models.json` 停用）。
-   实测：重启后 `session.get` 仍返回 `wps/moonshot/kimi-k2.7-code`。
+   实测：重启后 `session.get` 仍返回 `wps/deepseek/deepseek-v4-flash-0731`。
 2. ✅ **thinking 逐 delta 无法分段** → 协议新增**可选** `turn`/`step`（`CkpTurnStep`，向后兼容），
    bridge 从 dsh 原始事件透传；前端 thinking 块按 `turn-step` 分段，不再长期并成一块。
 3. ✅ **同一轮「文本 → 工具 → 文本」视觉割裂** → 前端按 `turn` 归组（`.turn` 容器 + 收紧间距），
@@ -157,6 +157,6 @@ node scripts/verify-m0.mjs "说一句你好"
 关键实测结论：
 - 全新 DSH_HOME 上用修正后的生成逻辑创建 profile → **sidecar 启动成功** → `verify-m0` 全链路通过
   （旧逻辑在此场景会因 `duplicate loader entry id: agent-loop` 直接失败）
-- `session.get` 现返回 `model`（`wps/moonshot/kimi-k2.7-code`）、`lastSeq`
+- `session.get` 现返回 `model`（`wps/deepseek/deepseek-v4-flash-0731`）、`lastSeq`
 - `model.list` 16 项均带 provider（证明 P0-3 的修复必要）
 - `git show HEAD:<rel>` 可用（证明 P0-1 的 diff 左侧来源成立）

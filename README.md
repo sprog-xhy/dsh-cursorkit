@@ -61,7 +61,7 @@ llm-pi-ai:
       api: openai-completions
       baseURL: https://ai-kas.kso.net/codeplan/v1
       models:
-        - id: moonshot/kimi-k2.7-code
+        - id: deepseek/deepseek-v4-flash-0731
           contextWindow: 230000
 
 # ~/.dsh-cursorkit/.credentials.yaml（0600）

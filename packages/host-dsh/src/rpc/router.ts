@@ -150,9 +150,9 @@ export class Router {
         ]);
       }
       const sessionId = `session-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-      // model 格式：`provider/full-model-id`（如 wps/moonshot/kimi-k2.7-code）
-      // 或 `provider/model`（如 wps/kimi-k2.7-code，模型 id 需在 settings 里存在）。
-      // dsh 的 agentOptions.model 需要的是【模型完整 id】（如 moonshot/kimi-k2.7-code），
+      // model 格式：`provider/full-model-id`（如 wps/deepseek/deepseek-v4-flash-0731）
+      // 或 `provider/model`（模型 id 需在 settings 里存在）。
+      // dsh 的 agentOptions.model 需要的是【模型完整 id】（如 deepseek/deepseek-v4-flash-0731），
       // provider 单独传。settings.yaml 的 wps providers 里模型 id 自带供应商前缀。
       const model = parseModelRef(params.model);
       await svc.agents.create({
@@ -594,6 +594,36 @@ function settingsFile(): string {
  * 轻量解析 settings.yaml 的 llm-pi-ai.providers 段 → ModelInfo[]。
  * 只做缩进结构扫描（settings.yaml 由 dsh 管理、格式稳定），不引 YAML 依赖。
  */
+/**
+ * 从 settings.yaml 读取 dsh 配置的默认模型（`agent-default-model.model`）。
+ *
+ * 目的：扩展不该硬编码默认模型 —— 用户已在 dsh 配置里指定时应当跟随
+ * （实测用户 settings.yaml 写的是 deepseek/deepseek-v4-flash-0731，
+ *  而扩展原先把默认写死成 kimi-k2.7-code，导致"默认模型不对"）。
+ */
+export function parseConfiguredDefaultModel(raw: string): string | undefined {
+  const lines = raw.split('\n');
+  let inSection = false;
+  let sectionIndent = -1;
+  for (const line of lines) {
+    if (/^\s*#/.test(line) || !line.trim()) continue;
+    const indent = line.length - line.trimStart().length;
+    const trimmed = line.trim();
+    if (/^agent-default-model\s*:/.test(trimmed)) {
+      inSection = true;
+      sectionIndent = indent;
+      continue;
+    }
+    if (inSection) {
+      // 同级或更浅的键 → 该段结束
+      if (indent <= sectionIndent && /^[\w.-]+\s*:/.test(trimmed)) break;
+      const m = /^model\s*:\s*(.+)$/.exec(trimmed);
+      if (m) return m[1].trim().replace(/^["']|["']$/g, '');
+    }
+  }
+  return undefined;
+}
+
 export function parseSettingsProviders(raw: string): {
   id: string;
   name: string;
@@ -645,7 +675,25 @@ export function parseSettingsProviders(raw: string): {
 }
 
 /** 默认模型（provider/model-id）。 */
-export const DEFAULT_MODEL = 'wps/moonshot/kimi-k2.7-code';
+export const DEFAULT_MODEL = 'wps/deepseek/deepseek-v4-flash-0731';
+
+/** settings.yaml 里配置的默认模型（provider 前缀按需补 wps/）。 */
+let configuredDefaultModel: string | undefined;
+
+/** 记录 settings.yaml 配置的默认模型（插件启动时调用）。 */
+export function setConfiguredDefaultModel(model: string | undefined): void {
+  configuredDefaultModel = model?.trim() || undefined;
+}
+
+/**
+ * 生效的默认模型：settings.yaml 配置优先，其次内置常量。
+ * 配置值可能是 `deepseek/deepseek-v4-flash-0731`（不带 provider）→ 补 `wps/`。
+ */
+export function effectiveDefaultModel(): string {
+  const configured = configuredDefaultModel;
+  if (!configured) return DEFAULT_MODEL;
+  return configured.includes('/') && configured.split('/').length > 2 ? configured : `wps/${configured}`;
+}
 
 /**
  * 解析模型引用 `provider/model-id`（model-id 可含 '/'）。
@@ -710,7 +758,7 @@ async function deleteSessionFiles(
 }
 
 export function parseModelRef(ref?: string): { provider?: string; model: string; full: string } {
-  const raw = (ref ?? '').trim() || DEFAULT_MODEL;
+  const raw = (ref ?? '').trim() || effectiveDefaultModel();
   const slash = raw.indexOf('/');
   if (slash <= 0) return { model: raw, full: raw };
   const provider = raw.slice(0, slash);

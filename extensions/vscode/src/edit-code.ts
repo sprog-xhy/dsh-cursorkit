@@ -125,5 +125,5 @@ function currentWorkspaceFor(editor: vscode.TextEditor): string {
 function defaultModel(): string {
   return vscode.workspace
     .getConfiguration('dshCursorkit.chat')
-    .get<string>('defaultModel', 'wps/moonshot/kimi-k2.7-code');
+    .get<string>('defaultModel', 'wps/deepseek/deepseek-v4-flash-0731');
 }

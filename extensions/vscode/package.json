@@ -121,7 +121,7 @@
         },
         "dshCursorkit.chat.defaultModel": {
           "type": "string",
-          "default": "wps/moonshot/kimi-k2.7-code",
+          "default": "wps/deepseek/deepseek-v4-flash-0731",
           "description": "默认模型（provider/model）"
         },
         "dshCursorkit.tab.enabled": {
