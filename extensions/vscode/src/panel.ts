@@ -134,6 +134,37 @@ export class ChatPanel {
         }
         return;
       }
+      case 'settings.get': {
+        const workspace = this.currentWorkspace();
+        const rules = loadRules(workspace);
+        void this.post({
+          type: 'settings.get',
+          rules: {
+            global: rules.global,
+            project: rules.project,
+          },
+          config: {
+            permissionMode: vscode.workspace.getConfiguration('dshCursorkit.permission').get('mode', 'danger-full-access'),
+            tabEnabled: vscode.workspace.getConfiguration('dshCursorkit.tab').get('enabled', true),
+          },
+        });
+        return;
+      }
+      case 'settings.update': {
+        const patch = (msg.patch ?? {}) as Record<string, unknown>;
+        if (typeof patch.tabEnabled === 'boolean') {
+          await vscode.workspace
+            .getConfiguration('dshCursorkit.tab')
+            .update('enabled', patch.tabEnabled, vscode.ConfigurationTarget.Global);
+        }
+        if (typeof patch.permissionMode === 'string') {
+          await vscode.workspace
+            .getConfiguration('dshCursorkit.permission')
+            .update('mode', patch.permissionMode, vscode.ConfigurationTarget.Global);
+        }
+        void this.post({ type: 'info', message: '设置已更新' });
+        return;
+      }
       case 'review.list': {
         const changes = this.tracker.list();
         void this.post({ type: 'review.list', changes });

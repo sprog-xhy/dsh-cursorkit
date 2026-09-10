@@ -62,6 +62,11 @@ interface ModelListMsg {
   type: 'model.list';
   models: { id: string; name: string; provider?: string }[];
 }
+interface SettingsGetMsg {
+  type: 'settings.get';
+  rules: { global: string; project: string[] };
+  config: { permissionMode: string; tabEnabled: boolean };
+}
 type Inbound =
   | SidecarStatusMsg
   | InitMsg
@@ -73,7 +78,8 @@ type Inbound =
   | CheckpointListMsg
   | SessionListMsg
   | SessionSwitchedMsg
-  | ModelListMsg;
+  | ModelListMsg
+  | SettingsGetMsg;
 
 // --- 消息渲染模型 ---
 interface ChatItem {
@@ -117,6 +123,8 @@ function App(): JSX.Element {
   const [showSessions, setShowSessions] = useState(false);
   const [models, setModels] = useState<{ id: string; name: string; provider?: string }[]>([]);
   const [showModels, setShowModels] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [settingsData, setSettingsData] = useState<{ rules: { global: string; project: string[] }; config: { permissionMode: string; tabEnabled: boolean } } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -164,6 +172,9 @@ function App(): JSX.Element {
           break;
         case 'model.list':
           setModels(msg.models);
+          break;
+        case 'settings.get':
+          setSettingsData(msg);
           break;
       }
     };
@@ -319,8 +330,54 @@ function App(): JSX.Element {
         >
           {model.split('/').pop() || model}
         </button>
+        <button
+          className="btn-review"
+          onClick={() => {
+            setShowSettings((v) => !v);
+            if (!showSettings) post({ type: 'settings.get' });
+          }}
+          title="设置（Rules / Tab / 权限）"
+        >
+          ⚙
+        </button>
         <span className="sidecar">{sidecarInfo}</span>
       </header>
+
+      {showSettings && settingsData && (
+        <div className="review-panel">
+          <div className="review-title">设置</div>
+          <div className="review-item">
+            <span className="review-path">Tab 补全</span>
+            <button
+              onClick={() => {
+                const next = !settingsData.config.tabEnabled;
+                post({ type: 'settings.update', patch: { tabEnabled: next } });
+                setSettingsData({ ...settingsData, config: { ...settingsData.config, tabEnabled: next } });
+              }}
+            >
+              {settingsData.config.tabEnabled ? '开' : '关'}
+            </button>
+          </div>
+          <div className="review-item">
+            <span className="review-path">权限模式</span>
+            <span className="review-stat">{settingsData.config.permissionMode}</span>
+          </div>
+          <div className="review-title" style={{ marginTop: 8 }}>Rules</div>
+          {settingsData.rules.project.length === 0 && !settingsData.rules.global && (
+            <div className="review-empty">无 Rules（项目 .cursorrules 或 ~/.cursorrules）</div>
+          )}
+          {settingsData.rules.project.map((r, i) => (
+            <div key={i} className="review-item">
+              <span className="review-path">{r.split('\n')[0].replace('## ', '')}</span>
+            </div>
+          ))}
+          {settingsData.rules.global && (
+            <div className="review-item">
+              <span className="review-path">~/.cursorrules（全局）</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {showModels && (
         <div className="review-panel">
