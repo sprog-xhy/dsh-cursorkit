@@ -9,6 +9,7 @@ import * as vscode from 'vscode';
 import { SidecarManager } from './sidecar.ts';
 import { CkpService } from './ckp.ts';
 import { ChatPanel } from './panel.ts';
+import { runInlineEdit } from './edit-code.ts';
 
 let sidecar: SidecarManager | null = null;
 let ckp: CkpService | null = null;
@@ -28,7 +29,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     void ckp?.cancel();
   });
   const editCmd = vscode.commands.registerCommand('dshCursorkit.editCode', () => {
-    void vscode.window.showInformationMessage('Ctrl+K 行内编辑将在 M3 提供（V2-DECISIONS D9）');
+    if (!ckp?.ready) {
+      void vscode.window.showErrorMessage('DSH sidecar 未就绪，请稍后再试');
+      return;
+    }
+    void runInlineEdit(ckp);
   });
   const tabCmd = vscode.commands.registerCommand('dshCursorkit.toggleTab', () => {
     void vscode.window.showInformationMessage('Tab 补全将在 M3 提供（V2-DECISIONS D8）');

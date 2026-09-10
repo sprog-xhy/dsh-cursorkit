@@ -16,6 +16,7 @@ export class CkpService {
   private activeSessionId: string | null = null;
   private transport: HttpTransport | null = null;
   private eventHandler: ((evt: unknown) => void) | null = null;
+  private onceHandlers: ((evt: unknown) => void)[] = [];
   private disposer: (() => void) | null = null;
 
   /** 由 SidecarManager 就绪后注入 transport。 */
@@ -39,6 +40,23 @@ export class CkpService {
   /** 订阅事件流（转发给 webview）。 */
   onEvent(handler: (evt: unknown) => void): void {
     this.eventHandler = handler;
+  }
+
+  /** 注册一次性事件监听（Ctrl+K 收集回复用），返回注销函数。 */
+  onEventOnce(handler: (evt: unknown) => void): () => void {
+    const wrapped = (evt: unknown): void => handler(evt);
+    // 与 onEvent 共享同一 handler 链：把 wrapped 加进一个额外列表
+    this.onceHandlers.push(wrapped);
+    return () => {
+      const i = this.onceHandlers.indexOf(wrapped);
+      if (i >= 0) this.onceHandlers.splice(i, 1);
+    };
+  }
+
+  /** 内部：把事件分发给常规 handler + 一次性 handlers。 */
+  private dispatch(evt: unknown): void {
+    this.eventHandler?.(evt);
+    for (const h of this.onceHandlers) h(evt);
   }
 
   async ensureSession(workspace: string, model: string): Promise<Session> {
@@ -115,7 +133,7 @@ export class CkpService {
     if (!this.client || !this.transport) return;
     this.disposer = this.transport.subscribe(sessionId, {
       fromSeq: 0,
-      onEvent: (evt) => this.eventHandler?.(evt),
+      onEvent: (evt) => this.dispatch(evt),
     });
   }
 }
