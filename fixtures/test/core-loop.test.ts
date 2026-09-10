@@ -52,6 +52,11 @@ const sessionsView = {
 const agentRegistry = {
   get: () => ({ send: () => {}, cancel: async () => {}, inbox: { append: () => {} } }),
   list: () => [],
+  create: async (opts: { sessionId: string }) => {
+    // 模拟 dsh AgentRegistry.create：同时注册 session（router 不再调 sessions.create）
+    sessionsView.seeds.push({ id: opts.sessionId, seq: 0 });
+    return { agent: { id: opts.sessionId } };
+  },
 };
 
 describe('M1 core loop (host × client integration)', () => {
@@ -76,7 +81,7 @@ describe('M1 core loop (host × client integration)', () => {
     try {
       // 1. session.create
       const session = await client.sessionCreate('/tmp/demo', { model: 'deepseek-chat' });
-      expect(session.id).toBe('session-1');
+      expect(session.id).toMatch(/^session-/);
 
       // 2. subscribe (store receives events)
       const store = client.storeFor(session.id);

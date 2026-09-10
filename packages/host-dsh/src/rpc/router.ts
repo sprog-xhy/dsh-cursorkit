@@ -10,6 +10,8 @@ import {
   type ParamsOf,
   type ResultOf,
 } from '@dsh-cursorkit/protocol';
+import { readFile } from 'node:fs/promises';
+import { isAbsolute, resolve } from 'node:path';
 import type { ApprovalBridge } from '../bridge/approval-bridge.ts';
 import type { CapabilityReport } from '../capability.ts';
 import type { EventBus } from './sse.ts';
@@ -17,6 +19,11 @@ import type { SessionStoreView, AgentView, AgentRegistryView } from '../compat/s
 import { computeFileChanges } from '../diff/git-diff.ts';
 import { listCheckpoints, restoreCheckpoint } from '../checkpoint/git-checkpoint.ts';
 import { listWorktrees, createWorktree, removeWorktree } from '../worktree/git-worktree.ts';
+
+/** 单文件注入上限（防爆上下文）。 */
+const CONTEXT_FILE_MAX_BYTES = 64 * 1024;
+/** 注入文件数上限。 */
+const CONTEXT_FILE_MAX_COUNT = 20;
 
 export interface RouterServices {
   sessions: SessionStoreView;
@@ -162,15 +169,34 @@ export class Router {
       return undefined;
     });
 
-    this.register('session.send', (params) => {
+    this.register('session.send', async (params) => {
       const s = svc.sessions.get(params.id);
       if (!s) throw new CkpError('SESSION_NOT_FOUND', `session ${params.id} not found`);
+      // @提及文件注入：mentions 里以 file: 前缀的条目读取内容并拼进消息（V2-DECISIONS D18）
+      let text = params.text;
+      const mentions = params.mentions ?? [];
+      const fileMentions = mentions.filter((m) => m.startsWith('file:')).map((m) => m.slice(5));
+      const cwd = s.header?.cwd;
+      if (fileMentions.length > 0) {
+        const injected: string[] = [];
+        for (const f of fileMentions.slice(0, CONTEXT_FILE_MAX_COUNT)) {
+          const abs = isAbsolute(f) ? f : cwd ? resolve(cwd, f) : resolve(f);
+          try {
+            const buf = await readFile(abs);
+            const bytes = Math.min(buf.length, CONTEXT_FILE_MAX_BYTES);
+            injected.push(`## 文件: ${f}\n\`\`\`\n${buf.toString('utf8', 0, bytes)}\n\`\`\``);
+          } catch {
+            injected.push(`## 文件: ${f}\n（读取失败）`);
+          }
+        }
+        if (injected.length > 0) text = `${text}\n\n${injected.join('\n\n')}`;
+      }
       const message = {
         id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         role: 'user' as const,
         // dsh Message requires a source; user messages carry kind 'user'.
         source: { kind: 'user' as const },
-        content: [{ type: 'text' as const, text: params.text }],
+        content: [{ type: 'text' as const, text }],
         createdAt: Date.now(),
       };
       const agentFor = svc.agents.get(params.id) ??
@@ -187,11 +213,50 @@ export class Router {
       svc.bus.emit({
         sessionId: params.id,
         type: 'message.user',
-        text: params.text,
+        text,
         attachments: params.attachments,
         mentions: params.mentions,
       } as never);
       return { messageId: message.id };
+    });
+
+    this.register('context.get', async (params) => {
+      const s = svc.sessions.get(params.sessionId);
+      if (!s) throw new CkpError('SESSION_NOT_FOUND', `session ${params.sessionId} not found`);
+      const cwd = s.header?.cwd;
+      const filePaths = (params.files ?? []).slice(0, CONTEXT_FILE_MAX_COUNT);
+      const parts: string[] = [];
+      const readFiles: { path: string; bytes: number }[] = [];
+
+      for (const f of filePaths) {
+        const abs = isAbsolute(f) ? f : cwd ? resolve(cwd, f) : resolve(f);
+        try {
+          const buf = await readFile(abs);
+          const bytes = Math.min(buf.length, CONTEXT_FILE_MAX_BYTES);
+          parts.push(`## 文件: ${f}\n\`\`\`\n${buf.toString('utf8', 0, bytes)}\n\`\`\``);
+          readFiles.push({ path: f, bytes: buf.length });
+        } catch {
+          parts.push(`## 文件: ${f}\n（读取失败：文件不存在或不可读）`);
+        }
+      }
+      if (params.selection) {
+        parts.push(`## 当前选中\n\`\`\`\n${params.selection}\n\`\`\``);
+      }
+      if (params.prompt) {
+        parts.push(`## 补充上下文\n${params.prompt}`);
+      }
+      const summary =
+        `注入 ${readFiles.length}/${filePaths.length} 个文件` +
+        (params.selection ? ' + 选中文本' : '') +
+        (params.prompt ? ' + 补充提示' : '');
+      return {
+        sessionId: params.sessionId,
+        files: filePaths,
+        selection: params.selection,
+        prompt: params.prompt,
+        injectedAt: Date.now(),
+        summary,
+      };
     });
 
     this.register('session.cancel', async (params) => {

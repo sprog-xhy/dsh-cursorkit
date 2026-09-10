@@ -47,6 +47,7 @@ export interface MethodParams {
   'worktree.create': { name: string; base?: string };
   'worktree.remove': { name: string };
   'diff.get': { sessionId?: string; checkpointId?: string };
+  'context.get': { sessionId: string; files?: string[]; selection?: string; prompt?: string };
 }
 
 /** Per-method result types. */
@@ -76,6 +77,18 @@ export interface MethodResults {
   'worktree.create': { name: string; path: string; branch: string };
   'worktree.remove': void;
   'diff.get': FileChange[];
+  'context.get': {
+    sessionId: string;
+    /** 注入的文件路径列表（VSCode 相对 workspace 或绝对路径）。 */
+    files?: string[];
+    /** 当前选中文本。 */
+    selection?: string;
+    /** 注入的补充提示（如 @codebase 检索结果）。 */
+    prompt?: string;
+    injectedAt: number;
+    /** 实际注入到 agent 上下文的内容（便于 UI 展示）。 */
+    summary: string;
+  };
 }
 
 /** Union of every method name. */

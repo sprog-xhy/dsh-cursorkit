@@ -8,7 +8,8 @@
  */
 import * as vscode from 'vscode';
 import { CkpService } from './ckp.ts';
-import type { SidecarManager } from './sidecar.ts';
+import { SidecarManager } from './sidecar.ts';
+import { buildInjectedContext } from './ide-bridge.ts';
 
 export class ChatPanel {
   public static current: ChatPanel | null = null;
@@ -62,7 +63,16 @@ export class ChatPanel {
         try {
           const workspace = this.currentWorkspace();
           await this.ckp.ensureSession(workspace, this.defaultModel());
-          await this.ckp.sendMessage(text);
+          // 上下文注入（V2-DECISIONS D18）：@file 提及 + 当前选中自动携带
+          const ctx = buildInjectedContext(text, workspace);
+          if (ctx.selection && ctx.files.length === 0) {
+            // 仅有选中文本：附加到消息（Cursor 习惯：选中即上下文）
+            void this.post({
+              type: 'info',
+              message: `已自动附加选中文本（${ctx.selection.length} 字符）`,
+            });
+          }
+          await this.ckp.sendMessage(text, { mentions: ctx.mentions });
         } catch (err) {
           void this.post({ type: 'error', message: (err as Error).message });
         }

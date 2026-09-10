@@ -81,6 +81,22 @@ export class CkpClient {
     return this.call('diff.get', opts);
   }
 
+  contextGet(opts: {
+    sessionId: string;
+    files?: string[];
+    selection?: string;
+    prompt?: string;
+  }): Promise<{
+    sessionId: string;
+    files?: string[];
+    selection?: string;
+    prompt?: string;
+    injectedAt: number;
+    summary: string;
+  }> {
+    return this.call('context.get', opts);
+  }
+
   checkpointList(sessionId: string): Promise<Checkpoint[]> {
     return this.call('checkpoint.list', { sessionId });
   }

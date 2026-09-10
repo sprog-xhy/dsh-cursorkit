@@ -53,9 +53,11 @@ export class CkpService {
     return s;
   }
 
-  async sendMessage(text: string): Promise<void> {
+  async sendMessage(text: string, opts?: { mentions?: string[] }): Promise<void> {
     if (!this.client || !this.activeSessionId) throw new Error('会话未就绪');
-    await this.client.sessionSend(this.activeSessionId, text);
+    await this.client.sessionSend(this.activeSessionId, text, {
+      mentions: opts?.mentions ?? [],
+    });
   }
 
   async cancel(): Promise<void> {

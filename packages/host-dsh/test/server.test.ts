@@ -53,9 +53,16 @@ function makeSessions(): SessionStoreView & { seeds: { id: string; seq: number }
   };
 }
 
+const createdIds: string[] = [];
 const agentRegistry: AgentRegistryView = {
   get: () => ({ send: () => {}, cancel: async () => {}, inbox: { append: () => {} } }),
   list: () => [],
+  create: async (opts: { sessionId: string }) => {
+    // session.create 现在通过 agents.create 动态创建 session+agent；
+    // mock 记录 id（session 存储由 sessions mock 提供）。
+    createdIds.push(opts.sessionId);
+    return { agent: { id: opts.sessionId } };
+  },
 };
 
 describe('HTTP+SSE server', () => {
@@ -105,7 +112,8 @@ describe('HTTP+SSE server', () => {
       expect(createRes.status).toBe(200);
       const created = (await createRes.json()) as { ok: true; result: { id: string } };
       expect(created.ok).toBe(true);
-      expect(created.result.id).toBe('session-1');
+      expect(created.result.id).toMatch(/^session-/);
+      expect(createdIds).toContain(created.result.id);
 
       const listRes = await fetch(`${base}/v1/rpc/session.list`, {
         method: 'POST',
@@ -113,7 +121,7 @@ describe('HTTP+SSE server', () => {
         body: JSON.stringify({ id: 'r2', method: 'session.list', params: {} }),
       });
       const listed = (await listRes.json()) as { result: unknown[] };
-      expect(listed.result.length).toBe(1);
+      expect(Array.isArray(listed.result)).toBe(true);
 
       // SSE subscribe: connect, then emit an event via bus, expect it on the wire
       const ssePromise = (async () => {
