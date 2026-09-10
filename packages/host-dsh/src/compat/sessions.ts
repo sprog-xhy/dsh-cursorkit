@@ -36,7 +36,11 @@ export interface AgentView {
 export interface AgentRegistryView {
   get(id: string): AgentView | undefined;
   list(): AgentView[];
-  create?(options: Record<string, unknown>): Promise<unknown>;
+  create?(options: {
+    sessionId: string;
+    meta?: { cwd?: string; origin?: 'subagent' };
+    agentOptions?: { provider?: string; model?: string; maxTokens?: number };
+  }): Promise<unknown>;
 }
 
 export interface AgentLoopView {

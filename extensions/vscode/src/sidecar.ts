@@ -114,8 +114,8 @@ export class SidecarManager implements vscode.Disposable {
     // 覆盖 ambient DSH_HOME：独立数据目录，绝不污染主环境
     delete env.CK_DSH_HOME;
 
-    const patchPath = join(this.dshHome, 'profiles', 'cursorkit', 'cordis.patch.yml');
-    this.proc = spawn(dshBin, ['--profile', 'cursorkit', '--patch', patchPath], {
+    // profile 目录的 cordis.patch.yml 由 dsh 自动加载（无需 --patch）
+    this.proc = spawn(dshBin, ['--profile', 'cursorkit'], {
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -147,49 +147,65 @@ export class SidecarManager implements vscode.Disposable {
     throw new Error('sidecar 启动超时（30s）。请查看 Output 面板 "DSH CursorKit Sidecar"');
   }
 
-  /** 生成 cursorkit profile（幂等）。 */
+  private profilePatch(): string {
+    return [
+      '# dsh-cursorkit profile patch overlay (auto-generated, V2-DECISIONS D15)',
+      '# host 插件由 host-dsh 包内 cordis.patch.yml 自动加载；',
+      '# 这里仅显式启用 agent-loop（dsh-base 不含 agent-loop，需要它提供 ctx.agents.create 工厂）',
+      '- insert:',
+      '    - id: agent-loop',
+      "      name: '@deepseek-ai/dsh-agent-loop'",
+      '      inject: [agents, sessions, llm, tools, systemPrompt]',
+      '      config: {}',
+      '',
+    ].join('\n');
+  }
+
+  /** 生成 cursorkit profile（幂等；patch 内容缺失 agent-loop 时重建）。 */
   private async ensureProfile(): Promise<void> {
     const profileDir = join(this.dshHome, 'profiles', 'cursorkit');
     const pkgPath = join(profileDir, 'package.json');
-    if (existsSync(pkgPath)) {
-      this.log(`profile exists: ${profileDir}`);
-      return;
-    }
-    await mkdir(profileDir, { recursive: true, mode: 0o700 });
+    const patchPath = join(profileDir, 'cordis.patch.yml');
     const absRepo = repoRoot();
     const hostPath = join(absRepo, 'packages', 'host-dsh');
     const protocolPath = join(absRepo, 'packages', 'protocol');
-    const patch = this.readCordisPatch();
-    await writeFile(
-      pkgPath,
-      JSON.stringify(
-        {
-          name: 'dsh-profile-cursorkit',
-          private: true,
-          dependencies: {
-            '@dsh-cursorkit/host-dsh': `file:${hostPath}`,
-            '@dsh-cursorkit/protocol': `file:${protocolPath}`,
-          },
-          dsh: { profile: { bundles: ['@deepseek-ai/dsh-base'] } },
-        },
-        null,
-        2,
-      ),
-      { mode: 0o600 },
-    );
-    await writeFile(join(profileDir, 'cordis.patch.yml'), patch, { mode: 0o600 });
-    this.log(`profile created: ${profileDir}`);
-  }
+    const patch = this.profilePatch();
 
-  private readCordisPatch(): string {
-    const candidates = [
-      join(repoRoot(), 'packages', 'host-dsh', 'cordis.patch.yml'),
-      join(__dirname, '..', '..', '..', '..', 'packages', 'host-dsh', 'cordis.patch.yml'),
-    ];
-    for (const c of candidates) {
-      if (existsSync(c)) return readFileSync(c, 'utf8');
+    let needPkg = !existsSync(pkgPath);
+    let needPatch = !existsSync(patchPath);
+    if (!needPatch && existsSync(patchPath)) {
+      const existing = readFileSync(patchPath, 'utf8');
+      // host 插件由 host-dsh 包内 patch 自动加载；profile patch 只负责
+      // 显式启用 agent-loop（dsh-base 不含 agent-loop，V2-DECISIONS D15）
+      if (!existing.includes('agent-loop')) needPatch = true;
     }
-    throw new Error('无法定位 host-dsh/cordis.patch.yml');
+    if (!needPkg && !needPatch) {
+      this.log(`profile ok: ${profileDir}`);
+      return;
+    }
+
+    await mkdir(profileDir, { recursive: true, mode: 0o700 });
+    if (needPkg) {
+      await writeFile(
+        pkgPath,
+        JSON.stringify(
+          {
+            name: 'dsh-profile-cursorkit',
+            private: true,
+            dependencies: {
+              '@dsh-cursorkit/host-dsh': `file:${hostPath}`,
+              '@dsh-cursorkit/protocol': `file:${protocolPath}`,
+            },
+            dsh: { profile: { bundles: ['@deepseek-ai/dsh-base'] } },
+          },
+          null,
+          2,
+        ),
+        { mode: 0o600 },
+      );
+    }
+    await writeFile(patchPath, patch, { mode: 0o600 });
+    this.log(`profile ${needPkg ? 'created' : 'patch repaired'}: ${profileDir}`);
   }
 
   private permissionMode(): string {

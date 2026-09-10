@@ -93,15 +93,38 @@ export class Router {
       }));
     });
 
-    this.register('session.create', (params) => {
-      const s = svc.sessions.create(undefined, {
+    this.register('session.create', async (params) => {
+      // 动态注册 live agent（dsh AgentRegistry.create，V2-DECISIONS D15）：
+      // agents.create 的 factory 内部会同时创建 session + agent（sessionId+meta 传入），
+      // 不要先 sessions.create —— 双重创建会因 id 冲突而失败。
+      if (typeof svc.agents.create !== 'function') {
+        throw new CkpError('CAPABILITY_MISSING', 'dsh AgentRegistry 未提供 create（agent factory 未注册）', [
+          'agents.create',
+        ]);
+      }
+      const sessionId = `session-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      // model 格式：`provider/full-model-id`（如 wps/moonshot/kimi-k2.7-code）
+      // 或 `provider/model`（如 wps/kimi-k2.7-code，模型 id 需在 settings 里存在）。
+      // dsh 的 agentOptions.model 需要的是【模型完整 id】（如 moonshot/kimi-k2.7-code），
+      // provider 单独传。settings.yaml 的 wps providers 里模型 id 自带供应商前缀。
+      const model = params.model ?? 'wps/moonshot/kimi-k2.7-code';
+      const [provider, ...modelParts] = model.split('/');
+      const modelId = modelParts.join('/');
+      await svc.agents.create({
+        sessionId,
         meta: { cwd: params.workspace },
+        agentOptions: {
+          provider,
+          model: modelId,
+          maxTokens: 8192,
+        },
       });
+      const s = svc.sessions.get(sessionId);
       return {
-        id: s.id,
+        id: sessionId,
         workspace: params.workspace,
         model: params.model,
-        createdAt: s.header?.createdAt ?? Date.now(),
+        createdAt: s?.header?.createdAt ?? Date.now(),
         updatedAt: Date.now(),
         status: 'idle' as const,
       };

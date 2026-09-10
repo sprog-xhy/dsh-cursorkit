@@ -52,7 +52,7 @@
         },
         "dshCursorkit.chat.defaultModel": {
           "type": "string",
-          "default": "wps/kimi-k2.7-code",
+          "default": "wps/moonshot/kimi-k2.7-code",
           "description": "默认模型（provider/model）"
         },
         "dshCursorkit.tab.enabled": {
