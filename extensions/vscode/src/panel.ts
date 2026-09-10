@@ -113,6 +113,30 @@ export class ChatPanel {
         }
         return;
       }
+      case 'checkpoint.list': {
+        const sessionId = String(msg.sessionId ?? '') || this.ckp.sessionId || '';
+        if (sessionId && this.ckp.ready) {
+          try {
+            const checkpoints = await this.ckp.checkpointList(sessionId);
+            void this.post({ type: 'checkpoint.list', sessionId, checkpoints });
+          } catch (err) {
+            void this.post({ type: 'error', message: `checkpoint 读取失败: ${(err as Error).message}` });
+          }
+        }
+        return;
+      }
+      case 'checkpoint.restore': {
+        const checkpointId = String(msg.checkpointId ?? '');
+        if (checkpointId && this.ckp.ready) {
+          try {
+            await this.ckp.checkpointRestore(checkpointId);
+            void this.post({ type: 'info', message: `已恢复 checkpoint ${checkpointId.slice(0, 8)}` });
+          } catch (err) {
+            void this.post({ type: 'error', message: `恢复失败: ${(err as Error).message}` });
+          }
+        }
+        return;
+      }
       default:
         return;
     }
@@ -153,6 +177,11 @@ export class ChatPanel {
 <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
+  }
+
+  /** 请求 webview 打开 checkpoint 时间线（由命令触发）。 */
+  public requestCheckpoints(): void {
+    void this.post({ type: 'checkpoint.open' });
   }
 
   public reveal(): void {

@@ -19,7 +19,8 @@
       { "command": "dshCursorkit.stop", "title": "DSH CursorKit: Stop" },
       { "command": "dshCursorkit.editCode", "title": "DSH CursorKit: Edit Code (Ctrl+K)", "icon": "$(pencil)" },
       { "command": "dshCursorkit.toggleTab", "title": "DSH CursorKit: Toggle Tab Completion" },
-      { "command": "dshCursorkit.openSettings", "title": "DSH CursorKit: Settings" }
+      { "command": "dshCursorkit.openSettings", "title": "DSH CursorKit: Settings" },
+      { "command": "dshCursorkit.checkpoints", "title": "DSH CursorKit: Checkpoints (时间线)" }
     ],
     "keybindings": [
       { "command": "dshCursorkit.openChat", "key": "ctrl+alt+c", "when": "!chatInputFocused" },

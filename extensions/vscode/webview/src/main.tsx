@@ -35,7 +35,30 @@ interface ReviewListMsg {
   type: 'review.list';
   changes: { path: string; additions: number; deletions: number; status: string }[];
 }
-type Inbound = SidecarStatusMsg | InitMsg | EventMsg | ErrorMsg | InfoMsg | ReviewListMsg;
+interface CheckpointOpenMsg {
+  type: 'checkpoint.open';
+}
+interface CheckpointListMsg {
+  type: 'checkpoint.list';
+  sessionId: string;
+  checkpoints: {
+    id: string;
+    sessionId: string;
+    summary: string;
+    createdAt: number;
+    commit?: string;
+    reversible: boolean;
+  }[];
+}
+type Inbound =
+  | SidecarStatusMsg
+  | InitMsg
+  | EventMsg
+  | ErrorMsg
+  | InfoMsg
+  | ReviewListMsg
+  | CheckpointOpenMsg
+  | CheckpointListMsg;
 
 // --- 消息渲染模型 ---
 interface ChatItem {
@@ -53,6 +76,15 @@ interface ReviewChange {
   status: string;
 }
 
+interface CheckpointInfo {
+  id: string;
+  sessionId: string;
+  summary: string;
+  createdAt: number;
+  commit?: string;
+  reversible: boolean;
+}
+
 function App(): JSX.Element {
   const [items, setItems] = useState<ChatItem[]>([]);
   const [input, setInput] = useState('');
@@ -62,6 +94,8 @@ function App(): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [changes, setChanges] = useState<ReviewChange[]>([]);
   const [showReview, setShowReview] = useState(false);
+  const [checkpoints, setCheckpoints] = useState<CheckpointInfo[]>([]);
+  const [showCheckpoints, setShowCheckpoints] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -91,6 +125,13 @@ function App(): JSX.Element {
           break;
         case 'review.list':
           setChanges(msg.changes);
+          break;
+        case 'checkpoint.open':
+          setShowCheckpoints(true);
+          post({ type: 'checkpoint.list', sessionId: '' });
+          break;
+        case 'checkpoint.list':
+          setCheckpoints(msg.checkpoints);
           break;
       }
     };
@@ -233,6 +274,22 @@ function App(): JSX.Element {
               </span>
               <button onClick={() => post({ type: 'review.diff', path: c.path })}>diff</button>
               <button onClick={() => post({ type: 'review.reject', path: c.path })}>还原</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showCheckpoints && (
+        <div className="review-panel checkpoint-panel">
+          <div className="review-title">Checkpoint 时间线（可回滚）</div>
+          {checkpoints.length === 0 && <div className="review-empty">暂无 checkpoint（agent 改动后自动创建）</div>}
+          {[...checkpoints].reverse().map((cp) => (
+            <div key={cp.id} className="review-item">
+              <span className="review-path">
+                {new Date(cp.createdAt).toLocaleTimeString()} · {cp.summary.slice(0, 40)}
+              </span>
+              <span className="review-stat">{cp.commit ? cp.commit.slice(0, 7) : ''}</span>
+              <button onClick={() => post({ type: 'checkpoint.restore', checkpointId: cp.id })}>回滚</button>
             </div>
           ))}
         </div>

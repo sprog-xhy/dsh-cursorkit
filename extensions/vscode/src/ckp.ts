@@ -81,6 +81,16 @@ export class CkpService {
     return this.client.sessionGet(id);
   }
 
+  async checkpointList(sessionId: string) {
+    if (!this.client) throw new Error('sidecar 未就绪');
+    return this.client.checkpointList(sessionId);
+  }
+
+  async checkpointRestore(checkpointId: string) {
+    if (!this.client) throw new Error('sidecar 未就绪');
+    return this.client.checkpointRestore(checkpointId);
+  }
+
   get sessionId(): string | null {
     return this.activeSessionId;
   }

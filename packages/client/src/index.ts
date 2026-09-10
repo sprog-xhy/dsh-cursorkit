@@ -101,6 +101,10 @@ export class CkpClient {
     return this.call('checkpoint.list', { sessionId });
   }
 
+  checkpointRestore(checkpointId: string): Promise<Session> {
+    return this.call('checkpoint.restore', { id: checkpointId });
+  }
+
   // --- event stream + store ---
 
   /**

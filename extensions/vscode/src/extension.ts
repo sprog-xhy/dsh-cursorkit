@@ -36,6 +36,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const settingsCmd = vscode.commands.registerCommand('dshCursorkit.openSettings', () => {
     void vscode.commands.executeCommand('workbench.action.openSettings', 'dshCursorkit');
   });
+  const checkpointsCmd = vscode.commands.registerCommand('dshCursorkit.checkpoints', () => {
+    void openChat(context).then(() => {
+      void ChatPanel.current?.requestCheckpoints();
+    });
+  });
 
   context.subscriptions.push(
     newChat,
@@ -44,6 +49,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     editCmd,
     tabCmd,
     settingsCmd,
+    checkpointsCmd,
   );
 
   // --- 自动启动 sidecar（settings 可关） ---
