@@ -2,7 +2,7 @@
 
 > 排查日期：2026-09-10 ｜ 范围：`extensions/vscode/src`（扩展进程）、`extensions/vscode/webview/src`（React 面板）、
 > `packages/host-dsh`（dsh 插件侧回归确认）
-> 结论：**发现并修复 26 个实质缺陷**（其中 10 个「功能完全失效」级），另完成 15 项 UI 优化。
+> 结论：**发现并修复 30 个实质缺陷**（其中 13 个「功能完全失效」级），另完成 15 项 UI 优化。
 > 第二轮复核：确认前 20 项修复全部真实落地；
 > 第三轮（历史会话必须可恢复）：修掉 3 项遗留 + 4 个新发现的 P0（含 SSE 会话串流）。
 > 全部修复已提交（`2f837e4` 及其前后提交），扩展测试 41 项 / 内核测试 74 项全绿。
@@ -33,6 +33,11 @@
 | 24 | SSE 回放窗口为空时**不 flush 响应头** | 切到尚无事件的新会话时，客户端 `fetch()` 永不 resolve（连接看似死掉，重连逻辑也不触发） | `res.writeHead(...)` 后立即 `res.flushHeaders()` |
 | 25 | 方法注册表遗漏：`CKP_METHODS`（运行时常量表）未收录 `context.get`，新增方法也容易忘登记 | 调用得到 `unknown method`——`context.get` 自加入起就一直是死方法 | 补齐 `CKP_METHODS` 与 `schema/methods.schema.json`；新增"方法表一致性"测试（从 router 源码抽取 register('x') 双向校验） |
 | 26 | profile 依赖指纹**只覆盖 host-dsh**，未覆盖同为 file: 依赖的 protocol 包 | protocol 变更后 profile 内副本过期 → 新方法报 `unknown method`（实测踩到） | 指纹合并两个包，任一变化即重装 |
+
+| 27 | **白屏**：webview 里 `ReferenceError: process is not defined`（Vite lib 模式不替换 `process.env.NODE_ENV`，React CJS 构建带着它；顺带打进了 React **dev** 构建，包体 494KB→164KB） | 面板/侧边栏完全空白，功能一个都用不了 | vite `define` 显式替换；新增 vm 沙箱回归测试（不提供 process，能复现该错误） |
+| 28 | **init 消息在 webview 加载前发送被丢弃**（VSCode webview 不排队） | 界面渲染出来了但状态永远"未连接"、模型名/改动计数为空 | 改为 `webviewReady` 握手后补发 init/sidecarStatus/reviewList |
+| 29 | **`turn/end` 被 bridge 全部丢弃** —— 用户报告"点停止没反应" | dsh 已 `aborted` 取消成功，但前端收不到任何事件 → busy 永远 true、"生成中"常驻、停止按钮不消失 | 按 dsh 四种结局映射：aborted→`cancelled`、error→`error`、completed/blocked→`done`；端到端验证脚本 `scripts/verify-cancel.mjs` |
+| 30 | **Agent 模式提示写死"这是多文件任务"** + **用户级 skills（~/.agents）被注入** | 用户问"解释这个项目的架构"却被当成改文件任务，agent 去 `str_replace_editor` 写 `/workspace`、`/home/kas/...`（外部路径！） | 提示改为条件式；sidecar 默认 `DSH_AGENTS_HOME=$DSH_HOME/agents` 隔离用户级 skills（设置 `sidecar.inheritGlobalSkills` 可改回） |
 
 ## 二、功能缺陷级（P1）
 
@@ -76,7 +81,7 @@
 
 ## 五、回归防线
 
-**测试总数：231 项全绿**（protocol 11 / client 14 / host-dsh 82 / fixtures 6 / 扩展 118）
+**测试总数：240 项全绿**（protocol 11 / client 14 / host-dsh 87 / fixtures 6 / 扩展 127）
 
 - host-dsh 48：新增 `model-ref`（5，覆盖 P0 级模型解析缺陷）
 - 扩展 77：
