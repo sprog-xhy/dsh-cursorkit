@@ -7,6 +7,7 @@ import { EventEmitter as NodeEmitter } from 'node:events';
 export const registeredCommands = new Map<string, (...args: unknown[]) => unknown>();
 export const registeredProviders: { kind: string; id: string }[] = [];
 export const infoMessages: string[] = [];
+export const registeredUriHandlers: { handleUri(uri: Uri): unknown }[] = [];
 export const errorMessages: string[] = [];
 export const executedCommands: { command: string; args: unknown[] }[] = [];
 
@@ -79,6 +80,10 @@ export const window = {
     task({ report: (): void => undefined }, { isCancellationRequested: false }),
   registerWebviewViewProvider: (id: string, _p: unknown) => {
     registeredProviders.push({ kind: 'webviewView', id });
+    return { dispose: (): void => undefined };
+  },
+  registerUriHandler: (handler: { handleUri(uri: Uri): unknown }) => {
+    registeredUriHandlers.push(handler);
     return { dispose: (): void => undefined };
   },
   registerTreeDataProvider: (id: string, _p: unknown) => {
@@ -164,6 +169,7 @@ export const workspace = {
 };
 
 export const env = { appRoot: '/tmp/vscode' };
+export const version = '1.135.0-test';
 
 export class TreeItem {
   description?: string;
@@ -191,6 +197,7 @@ export const EventEmitter = Emitter;
 export type Disposable = { dispose(): void };
 export type ExtensionContext = {
   subscriptions: { dispose(): void }[];
+  extension: { packageJSON: { version?: string } };
   extensionUri: Uri;
   secrets: { get(k: string): Promise<string | undefined>; store(k: string, v: string): Promise<void> };
   globalState: { get<T>(k: string, d?: T): T; update(k: string, v: unknown): Promise<void> };

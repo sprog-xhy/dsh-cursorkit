@@ -17,6 +17,7 @@ import { ChatPanel, SidebarChatViewProvider } from './panel.ts';
 import { VirtualDocProvider, VIRTUAL_SCHEME } from './virtual-docs.ts';
 import { runInlineEdit } from './edit-code.ts';
 import { TabCompletionProvider } from './tab-completion.ts';
+import { activityLog } from './activity-log.ts';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolvePackageDirs } from './sidecar.ts';
@@ -30,6 +31,7 @@ let extContext: vscode.ExtensionContext | null = null;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   extContext = context;
+  activityLog(`activate | vscode=${vscode.version} extension=${String(context.extension.packageJSON.version ?? '?')}`);
   sidecar = new SidecarManager(context);
   ckp = new CkpService();
   docs = new VirtualDocProvider();
@@ -63,6 +65,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('dshCursorkit.focusChatView', async () => {
       await vscode.commands.executeCommand('workbench.view.extension.dshCursorkit');
       await vscode.commands.executeCommand('dshCursorkit.chatView.focus');
+    }),
+  );
+
+  // --- URI 入口：vscode://sprogx.dsh-cursorkit/chat|sidebar|new|doctor ---
+  // 便于从命令行/外部工具直接打开（也用于自动化与排障）。
+  context.subscriptions.push(
+    vscode.window.registerUriHandler({
+      handleUri: (uri) => {
+        const action = uri.path.replace(/^\/+/, '') || 'chat';
+        activityLog(`uri | ${action}`);
+        switch (action) {
+          case 'sidebar':
+            void vscode.commands.executeCommand('workbench.view.extension.dshCursorkit');
+            void vscode.commands.executeCommand('dshCursorkit.chatView.focus');
+            break;
+          case 'new':
+            void openChat().then(() => controller?.requestNewSession());
+            break;
+          case 'doctor':
+            void vscode.commands.executeCommand('dshCursorkit.doctor');
+            break;
+          default:
+            void openChat();
+            break;
+        }
+      },
     }),
   );
 
@@ -194,6 +222,7 @@ async function runDoctorInner(context: vscode.ExtensionContext): Promise<void> {
 }
 
 export function deactivate(): void {
+  activityLog('deactivate');
   controller?.dispose();
   sidecar?.dispose();
   sidecar = null;

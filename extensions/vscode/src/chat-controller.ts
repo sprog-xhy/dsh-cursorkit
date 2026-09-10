@@ -14,6 +14,7 @@ import { ChangeTracker, rejectChange, resolveConflict, type FileChangeEvent } fr
 import { loadRules, rulesToPrompt, rulesFingerprint } from './rules.ts';
 import type { VirtualDocProvider } from './virtual-docs.ts';
 import { relative } from 'node:path';
+import { activityLog } from './activity-log.ts';
 
 /** webview 宿主（编辑器面板 / 侧边栏视图）。 */
 export interface ChatHost {
@@ -87,6 +88,8 @@ export class ChatController {
 
   /** 向所有宿主广播。 */
   broadcast(msg: unknown): void {
+    const m = msg as { type?: string; message?: string };
+    if (m?.type === 'error') activityLog(`ui-error | ${m.message ?? ''}`);
     for (const host of this.hosts) {
       try {
         host.post(msg);
@@ -110,6 +113,7 @@ export class ChatController {
         const id = String(msg.sessionId ?? '');
         if (!id) return;
         try {
+          activityLog(`switch-session | ${id}`);
           // 顺序很重要：先让前端清空，再回放历史（否则历史会被清掉）
           this.broadcast({ type: 'session.switched', sessionId: id });
           const restored = await this.ckp.switchSession(id);
@@ -203,10 +207,13 @@ export class ChatController {
         }
       }
 
-      await this.ckp.sendMessage(segments.join(''), {
-        mentions: ctx.mentions,
-        mode: (msg.mode as 'ask' | 'edit' | 'agent') ?? 'agent',
-      });
+      const mode = (msg.mode as 'ask' | 'edit' | 'agent') ?? 'agent';
+      const finalText = segments.join('');
+      activityLog(
+        `send | session=${session.id} mode=${mode} model=${selectedModel} chars=${finalText.length} ` +
+          `mentions=${ctx.mentions.length} selection=${ctx.selection ? ctx.selection.text.length : 0}`,
+      );
+      await this.ckp.sendMessage(finalText, { mentions: ctx.mentions, mode });
     } catch (err) {
       this.broadcast({ type: 'error', message: (err as Error).message });
     }
@@ -289,6 +296,7 @@ export class ChatController {
   private async onReviewDiff(path: string): Promise<void> {
     if (!path) return;
     try {
+      activityLog(`review-diff | ${path}`);
       const outcome = await this.tracker.showDiff(path, currentWorkspace());
       if (outcome === 'patch') {
         this.broadcast({ type: 'info', message: `${path} 未纳入 git，已打开补丁视图` });
@@ -303,6 +311,7 @@ export class ChatController {
   private async onReviewReject(path: string): Promise<void> {
     if (!path) return;
     try {
+      activityLog(`review-reject | ${path}`);
       const outcome = await rejectChange(path, currentWorkspace(), this.docs);
       switch (outcome) {
         case 'reverted':
@@ -341,6 +350,7 @@ export class ChatController {
 
   private async onCheckpointRestore(checkpointId: string): Promise<void> {
     if (!checkpointId || !this.ckp.ready) return;
+    activityLog(`checkpoint-restore | ${checkpointId}`);
     try {
       await this.ckp.checkpointRestore(checkpointId);
       this.broadcast({ type: 'info', message: `已回滚到 checkpoint ${checkpointId.slice(0, 8)}` });
@@ -353,6 +363,12 @@ export class ChatController {
 
   /** 事件副作用：file.changed → 更新审查列表 + 冲突检测（D28）。 */
   private async onEventSideEffect(evt: unknown): Promise<void> {
+    const ev = evt as { type?: string; message?: string; change?: FileChangeEvent };
+    if (ev?.type === 'error') activityLog(`agent-error | ${ev.message ?? ''}`);
+    if (ev?.type === 'tool.call') {
+      const call = (evt as { call?: { name?: string } }).call;
+      activityLog(`tool-call | ${call?.name ?? '?'}`);
+    }
     const e = evt as { type?: string; change?: FileChangeEvent };
     if (e?.type !== 'file.changed' || !e.change) return;
     const workspace = currentWorkspace();

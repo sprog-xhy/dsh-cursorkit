@@ -69,6 +69,7 @@ class FakeTransport implements Transport {
 function fakeContext(): ExtensionContext {
   return {
     subscriptions: [],
+    extension: { packageJSON: { version: '0.1.0-test' } },
     extensionUri: Uri.file(process.cwd()),
     secrets: { get: async () => undefined, store: async () => undefined },
     globalState: { get: (_k: string, d?: unknown) => d, update: async () => undefined },

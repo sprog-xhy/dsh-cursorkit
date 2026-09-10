@@ -7,6 +7,7 @@
  * - 崩溃：自动重启（指数退避 ≤5 次）；停止：SIGTERM + 清理
  */
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
+import { activityLog, initActivityLog } from './activity-log.ts';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -119,6 +120,7 @@ export class SidecarManager implements vscode.Disposable {
     this.output = vscode.window.createOutputChannel('DSH CursorKit Sidecar');
     this.statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
     this.statusBar.show();
+    initActivityLog(this.dshHome);
     context.subscriptions.push(this.output, this.statusBar);
   }
 
@@ -402,6 +404,8 @@ export class SidecarManager implements vscode.Disposable {
 
   private log(msg: string): void {
     this.output.appendLine(`[${new Date().toISOString()}] ${msg}`);
+    // 同步落盘：便于命令行排障/监控（OutputChannel 只能在 GUI 看）
+    activityLog(`sidecar | ${msg}`);
   }
 
   dispose(): void {

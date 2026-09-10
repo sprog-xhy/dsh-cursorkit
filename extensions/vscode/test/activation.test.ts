@@ -14,11 +14,16 @@ import {
   Uri,
 } from './stubs/vscode.ts';
 import { activate, deactivate } from '../src/extension.ts';
+import { setConfig, registeredUriHandlers } from './stubs/vscode.ts';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 function makeContext(): ExtensionContext {
   const state = new Map<string, unknown>();
   return {
     subscriptions: [],
+    extension: { packageJSON: { version: '0.1.0-test' } },
     extensionUri: Uri.file('/tmp/ext'),
     secrets: {
       get: async () => undefined,
@@ -47,6 +52,9 @@ const EXPECTED_COMMANDS = [
 
 describe('extension activation', () => {
   beforeEach(() => {
+    // 活动日志写到临时目录（不污染真实 ~/.dsh-cursorkit）
+    setConfig('dshCursorkit.sidecar.dshHome', mkdtempSync(join(tmpdir(), 'ck-act-')));
+    registeredUriHandlers.length = 0;
     registeredCommands.clear();
     registeredProviders.length = 0;
     executedCommands.length = 0;
@@ -100,6 +108,16 @@ describe('extension activation', () => {
     await activate(makeContext());
     await registeredCommands.get('dshCursorkit.openSettings')?.();
     expect(executedCommands.map((c) => c.command)).toContain('workbench.action.openSettings');
+    deactivate();
+  });
+
+  it('注册了 URI handler（可从外部打开 Chat）', async () => {
+    await activate(makeContext());
+    expect(registeredUriHandlers.length).toBe(1);
+    // 触发 chat 动作不应抛错
+    await expect(
+      Promise.resolve(registeredUriHandlers[0].handleUri(Uri.parse('vscode://sprogx.dsh-cursorkit/chat'))),
+    ).resolves.toBeUndefined();
     deactivate();
   });
 
