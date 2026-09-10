@@ -268,6 +268,35 @@ describe('面板组件', () => {
     expect(html).toContain('-1');
   });
 
+  it('ReviewPanel：行数未知时不显示误导性的 -0', () => {
+    const html = renderToStaticMarkup(
+      h(ReviewPanel, {
+        changes: [{ path: 'b.ts', additions: 0, deletions: 0, status: 'modified' }],
+        onDiff: noop,
+        onReject: noop,
+        onOpen: noop,
+        onClose: noop,
+      }),
+    );
+    expect(html).not.toContain('-0');
+    expect(html).toContain('—');
+  });
+
+  it('ReviewPanel：只有新增时不显示 -0', () => {
+    const html = renderToStaticMarkup(
+      h(ReviewPanel, {
+        changes: [{ path: 'c.ts', additions: 5, deletions: 0, status: 'added' }],
+        onDiff: noop,
+        onReject: noop,
+        onOpen: noop,
+        onClose: noop,
+      }),
+    );
+    expect(html).toContain('+5');
+    expect(html).not.toContain('-0');
+    expect(html).toContain('新增');
+  });
+
   it('CheckpointsPanel：空态', () => {
     const html = renderToStaticMarkup(
       h(CheckpointsPanel, { checkpoints: [], onRollback: noop, onClose: noop }),

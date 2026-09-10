@@ -104,10 +104,15 @@ export function ReviewPanel(props: ReviewPanelProps): JSX.Element {
           <span className="panel-row-main" onClick={() => onOpen(c.path)}>
             {c.path}
           </span>
-          <span className="panel-row-stat">
-            <span className="stat-add">+{c.additions}</span>
-            <span className="stat-del">-{c.deletions}</span>
-          </span>
+          {/* 行数为 best-effort 估算（host 从工具输出推断），未知时显示 — 而不是误导性的 -0 */}
+          {c.additions > 0 || c.deletions > 0 ? (
+            <span className="panel-row-stat" title="改动行数（估算，以 diff 为准）">
+              {c.additions > 0 && <span className="stat-add">+{c.additions}</span>}
+              {c.deletions > 0 && <span className="stat-del">-{c.deletions}</span>}
+            </span>
+          ) : (
+            <span className="panel-row-sub" title="改动行数未知，请用 diff 查看">—</span>
+          )}
           <span className="panel-row-actions">
             <button className="panel-btn" onClick={() => onDiff(c.path)} title="与 git HEAD 对比">
               diff

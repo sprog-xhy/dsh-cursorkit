@@ -10,7 +10,7 @@ import type { CkpEvent } from '@dsh-cursorkit/protocol';
 export type Disposer = () => void;
 
 export interface SubscribeOptions {
-  /** Resume from this seq (inclusive replay window). */
+  /** 从此 seq 之后开始回放（服务端为排他边界：只发 seq > fromSeq 的事件）。 */
   fromSeq: number;
   /** Called for each live event after the replay window. */
   onEvent(e: CkpEvent): void;
