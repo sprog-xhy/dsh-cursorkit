@@ -178,13 +178,18 @@ export class SidecarManager implements vscode.Disposable {
     this.log(`spawn dsh (profile=cursorkit, dshHome=${this.dshHome})`);
     await this.ensureProfile();
 
-    const env: Record<string, string> = {
-      ...(process.env as Record<string, string>),
-      DSH_HOME: this.dshHome,
-      DSH_PERMISSION_MODE: this.permissionMode(),
-    };
-    // 覆盖 ambient DSH_HOME：独立数据目录，绝不污染主环境
-    delete env.CK_DSH_HOME;
+    const env = buildSidecarEnv(process.env as Record<string, string>, {
+      dshHome: this.dshHome,
+      permissionMode: this.permissionMode(),
+      inheritGlobalSkills: vscode.workspace
+        .getConfiguration('dshCursorkit.sidecar')
+        .get<boolean>('inheritGlobalSkills', false),
+    });
+    if (env.DSH_AGENTS_HOME) {
+      this.log(`已隔离用户级 skills（DSH_AGENTS_HOME=${env.DSH_AGENTS_HOME}；可用设置 inheritGlobalSkills 改为继承）`);
+    } else {
+      this.log('继承用户级 skills（~/.agents/skills 会注入 agent 上下文）');
+    }
 
     // profile 目录的 cordis.patch.yml 由 dsh 自动加载（无需 --patch）
     this.proc = spawn(dshBin, ['--profile', 'cursorkit'], {
@@ -428,4 +433,31 @@ export class SidecarManager implements vscode.Disposable {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * 构造 sidecar 进程环境（纯函数，便于测试）。
+ *
+ * 关键点：
+ * - DSH_HOME 必须是扩展自己的目录：绝不继承 ambient DSH_HOME（否则污染主环境）
+ * - 默认隔离**用户级 agent skills**：dsh 会从 `$DSH_AGENTS_HOME`（默认 ~/.agents）加载 skills，
+ *   这些技能常常是别的业务场景的（实测：KAS 技能把 agent 引向 /home/kas/... 外部路径，
+ *   让"解释项目架构"这种请求去改文件）→ 指到 $DSH_HOME/agents 即不加载。
+ */
+export function buildSidecarEnv(
+  base: Record<string, string>,
+  opts: { dshHome: string; permissionMode: string; inheritGlobalSkills: boolean },
+): Record<string, string> {
+  const env: Record<string, string> = {
+    ...base,
+    DSH_HOME: opts.dshHome,
+    DSH_PERMISSION_MODE: opts.permissionMode,
+  };
+  delete env.CK_DSH_HOME;
+  if (opts.inheritGlobalSkills) {
+    delete env.DSH_AGENTS_HOME;
+  } else {
+    env.DSH_AGENTS_HOME = join(opts.dshHome, 'agents');
+  }
+  return env;
 }

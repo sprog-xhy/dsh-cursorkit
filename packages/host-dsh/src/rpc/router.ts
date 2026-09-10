@@ -275,8 +275,11 @@ export class Router {
       const modeHint: Record<'ask' | 'edit' | 'agent', string> = {
         ask: '\n\n[模式: Ask] 只回答问题或解释代码，不要修改任何文件，不要调用写文件工具。',
         edit: '\n\n[模式: Edit] 专注修改用户指出的内容。先说明要改什么，改动要最小化、精确。',
+        // 注意：不要写成"这是多文件任务"——纯问答（如"解释架构"）会被误导去修改文件
+        // （实测：用户问"解释这个项目的架构"，模型据此去 str_replace_editor 改文件）
         agent:
-          '\n\n[模式: Agent/Composer] 这是多文件任务。开始前先输出简明计划：用编号列表列出要改动的文件与每处改动要点；然后逐项执行，每完成一个文件等待工具结果。',
+          '\n\n[模式: Agent] 如果这个请求需要改动代码，先给出简明计划（编号列出要改的文件与要点）再逐项执行；' +
+          '如果只是提问或要求解释，直接回答，不要修改任何文件。',
       };
       let text = `${params.text}${modeHint[mode] ?? ''}`;
       const mentions = params.mentions ?? [];

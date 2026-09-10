@@ -4,6 +4,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { existsSync, readFileSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { buildSidecarEnv } from '../src/sidecar.ts';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -70,5 +71,38 @@ describe('sidecar (static helpers)', () => {
     expect(patch).toContain('cursorkit-host');
     expect(patch).toContain('inject');
     expect(patch).toContain('runtime.json');
+  });
+});
+
+describe('buildSidecarEnv（sidecar 环境隔离）', () => {
+  const base = { PATH: '/usr/bin', DSH_HOME: '/home/u/.dsh', CK_DSH_HOME: '/tmp/x' };
+
+  it('覆盖 ambient DSH_HOME 并清理 CK_DSH_HOME（绝不污染主环境）', () => {
+    const env = buildSidecarEnv(base, {
+      dshHome: '/home/u/.dsh-cursorkit',
+      permissionMode: 'danger-full-access',
+      inheritGlobalSkills: false,
+    });
+    expect(env.DSH_HOME).toBe('/home/u/.dsh-cursorkit');
+    expect(env.CK_DSH_HOME).toBeUndefined();
+    expect(env.DSH_PERMISSION_MODE).toBe('danger-full-access');
+  });
+
+  it('默认隔离用户级 skills（DSH_AGENTS_HOME 指向自己的目录）', () => {
+    const env = buildSidecarEnv(base, {
+      dshHome: '/home/u/.dsh-cursorkit',
+      permissionMode: 'default',
+      inheritGlobalSkills: false,
+    });
+    expect(env.DSH_AGENTS_HOME).toBe('/home/u/.dsh-cursorkit/agents');
+  });
+
+  it('打开 inheritGlobalSkills 时不设置 DSH_AGENTS_HOME（沿用 ~/.agents）', () => {
+    const env = buildSidecarEnv(base, {
+      dshHome: '/home/u/.dsh-cursorkit',
+      permissionMode: 'default',
+      inheritGlobalSkills: true,
+    });
+    expect(env.DSH_AGENTS_HOME).toBeUndefined();
   });
 });

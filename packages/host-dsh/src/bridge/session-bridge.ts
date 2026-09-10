@@ -169,8 +169,34 @@ export function translateRawEvent(
       // Opening turn — a no-op marker for CKP.
       return { sessionId, type: 'message.delta', text: '' };
 
-    case 'turn/end':
-      return null;
+    /**
+     * 回合结束。
+     *
+     * 修复（"点停止没反应"）：原实现直接 `return null`，于是 dsh 的
+     * `turn/end {reason:{kind:'aborted'}}` 被丢弃 → 前端收不到任何事件 →
+     * busy 永远为 true（一直显示"生成中"、停止按钮不消失）。
+     * dsh 的结局有 4 种：completed / aborted / blocked / error。
+     */
+    case 'turn/end': {
+      const reason = (d.reason ?? {}) as {
+        kind?: string;
+        error?: { message?: string; code?: string };
+      };
+      const kind = reason.kind ?? 'completed';
+      if (kind === 'aborted') {
+        return { sessionId, type: 'cancelled', ...turnStepOf(d) };
+      }
+      if (kind === 'error') {
+        return {
+          sessionId,
+          type: 'error',
+          message: reason.error?.message ?? 'turn failed',
+          ...turnStepOf(d),
+        };
+      }
+      // completed / blocked（以及未知值）→ 统一收敛为 done
+      return { sessionId, type: 'done', status: 'idle', ...turnStepOf(d) };
+    }
 
     case 'approval/asked':
       return null; // audit-only; ApprovalBridge handles the UI-facing surface

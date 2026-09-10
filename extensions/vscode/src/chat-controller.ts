@@ -132,7 +132,15 @@ export class ChatController {
       case 'send':
         return this.onSend(msg);
       case 'stop':
-        await this.ckp.cancel().catch(() => undefined);
+        activityLog('stop-requested');
+        try {
+          await this.ckp.cancel();
+          activityLog('stop-sent');
+        } catch (err) {
+          // 原先静默吞掉 → "点停止没反应"完全无法排查
+          activityLog(`stop-failed | ${(err as Error).message}`);
+          this.broadcast({ type: 'error', message: `停止失败：${(err as Error).message}` });
+        }
         return;
       case 'newSession':
         return this.onNewSession(msg);
@@ -392,6 +400,8 @@ export class ChatController {
   private async onEventSideEffect(evt: unknown): Promise<void> {
     const ev = evt as { type?: string; message?: string; change?: FileChangeEvent };
     if (ev?.type === 'error') activityLog(`agent-error | ${ev.message ?? ''}`);
+    if (ev?.type === 'cancelled') activityLog('turn-cancelled（dsh 已中断本回合）');
+    if (ev?.type === 'done') activityLog('turn-done');
     if (ev?.type === 'tool.call') {
       const call = (evt as { call?: { name?: string } }).call;
       activityLog(`tool-call | ${call?.name ?? '?'}`);

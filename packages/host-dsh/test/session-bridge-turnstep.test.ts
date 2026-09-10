@@ -76,3 +76,43 @@ describe('translateRawEvent: tool/call', () => {
     expect(evt?.call?.args).toEqual({ raw: 'not-json' });
   });
 });
+
+describe('translateRawEvent: turn/end（修复"停止没反应"）', () => {
+  it('aborted → cancelled 事件（否则前端永远停在"生成中"）', () => {
+    const evt = translateRawEvent(S, {
+      type: 'turn/end',
+      data: { turn: 1, reason: { kind: 'aborted', reason: { keepInbox: false } } },
+    });
+    expect(evt).toMatchObject({ type: 'cancelled', turn: 1 });
+  });
+
+  it('error → error 事件并带上错误信息', () => {
+    const evt = translateRawEvent(S, {
+      type: 'turn/end',
+      data: { turn: 2, reason: { kind: 'error', error: { message: 'UNKNOWN_MODEL', code: 'X' } } },
+    }) as { type?: string; message?: string } | null;
+    expect(evt?.type).toBe('error');
+    expect(evt?.message).toBe('UNKNOWN_MODEL');
+  });
+
+  it('completed → done（status=idle）', () => {
+    const evt = translateRawEvent(S, {
+      type: 'turn/end',
+      data: { turn: 3, reason: { kind: 'completed' } },
+    }) as { type?: string; status?: string } | null;
+    expect(evt).toMatchObject({ type: 'done', status: 'idle' });
+  });
+
+  it('blocked → done（不让前端卡在运行中）', () => {
+    const evt = translateRawEvent(S, {
+      type: 'turn/end',
+      data: { turn: 4, reason: { kind: 'blocked' } },
+    }) as { type?: string } | null;
+    expect(evt?.type).toBe('done');
+  });
+
+  it('缺 reason 时按 completed 处理（容错）', () => {
+    const evt = translateRawEvent(S, { type: 'turn/end', data: { turn: 5 } }) as { type?: string } | null;
+    expect(evt?.type).toBe('done');
+  });
+});

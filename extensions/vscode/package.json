@@ -148,6 +148,11 @@
           "type": "string",
           "default": "",
           "description": "自定义 host-dsh 包目录（留空则自动：开发仓库 packages/ 或扩展内置 bundled/）"
+        },
+        "dshCursorkit.sidecar.inheritGlobalSkills": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否加载用户级 agent skills（~/.agents/skills）。默认 false：避免其它业务场景的技能把 agent 引向外部路径"
         }
       }
     },

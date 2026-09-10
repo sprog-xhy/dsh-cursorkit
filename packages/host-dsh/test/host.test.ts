@@ -94,7 +94,10 @@ describe('session-bridge translation', () => {
     });
 
     expect(translateRawEvent('s1', { type: 'turn/start', data: { turn: 1 } })).toMatchObject({ type: 'message.delta' });
-    expect(translateRawEvent('s1', { type: 'turn/end', data: { turn: 1 } })).toBeNull();
+    // turn/end 现在会映射（原先丢弃 → 前端收不到"结束/取消"，busy 永远为 true）
+    expect(translateRawEvent('s1', { type: 'turn/end', data: { turn: 1 } })).toMatchObject({
+      type: 'done',
+    });
   });
 
   it('maps tool/result to output and error variants (real dsh shapes)', () => {

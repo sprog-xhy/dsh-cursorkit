@@ -430,7 +430,12 @@ function App(): JSX.Element {
         value={input}
         onChange={setInput}
         onSend={send}
-        onStop={() => post({ type: 'stop' })}
+        onStop={() => {
+          // 立即解锁 UI（后端会再发 cancelled/done 事件；这里只求"点了就有反馈"）
+          setBusy(false);
+          pushItem({ id: `stopping-${Date.now()}`, role: 'system', text: '正在停止…' });
+          post({ type: 'stop' });
+        }}
         busy={busy}
         mode={mode}
         onModeChange={setMode}
