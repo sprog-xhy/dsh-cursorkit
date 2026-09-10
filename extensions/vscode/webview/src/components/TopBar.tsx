@@ -37,14 +37,14 @@ export function TopBar(props: TopBarProps): JSX.Element {
 
   return (
     <header className="topbar">
-      <span className={`dot status-${status}`} title={`sidecar: ${meta.label} ${sidecarInfo}`}>
+      <span className={`dot status-${status}`} data-dsh="status" title={`sidecar: ${meta.label} ${sidecarInfo}`}>
         {meta.icon}
       </span>
       <span className="topbar-title" title={sidecarInfo || meta.label}>
         DSH CursorKit
       </span>
       <div className="topbar-actions">
-        <button className={cls('sessions')} onClick={onToggleSessions} title="会话列表 / 新建">
+        <button className={cls('sessions')} data-dsh="session" onClick={onToggleSessions} title="会话列表 / 新建">
           {activeSessionId ? activeSessionId.slice(0, 8) : '会话'}
         </button>
         <button className="tb-btn" onClick={onNewSession} title="新建会话（Composer 新任务）">
@@ -60,7 +60,7 @@ export function TopBar(props: TopBarProps): JSX.Element {
         <button className={cls('checkpoints')} onClick={onToggleCheckpoints} title="Checkpoint 时间线（回滚）">
           时间线
         </button>
-        <button className={cls('models')} onClick={onToggleModels} title="选择模型">
+        <button className={cls('models')} data-dsh="model" onClick={onToggleModels} title="选择模型">
           {model}
         </button>
         <button className={cls('settings')} onClick={onToggleSettings} title="设置">

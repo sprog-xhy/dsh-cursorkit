@@ -61,14 +61,26 @@ export class ChatController {
     );
   }
 
-  /** 挂载 webview 宿主并推送初始状态。 */
+  /** 挂载 webview 宿主。 */
   attach(host: ChatHost): void {
     this.hosts.add(host);
+    // 注意：webview 内容尚未加载时 postMessage 会被丢弃
+    // （VSCode webview 不做排队）——所以真正推送初始状态在收到 webviewReady 之后。
+    this.postInit(host);
+  }
+
+  /** 推送初始状态（webviewReady 之后调用才算可靠）。 */
+  private postInit(host: ChatHost): void {
     host.post({
       type: 'init',
       model: this.defaultModel(),
       sidecar: this.sidecar.runtimeInfo,
       sessionId: this.ckp.sessionId ?? '',
+    });
+    host.post({
+      type: 'sidecarStatus',
+      status: this.sidecar.currentStatus,
+      info: this.sidecar.runtimeInfo,
     });
     host.post({ type: 'review.list', changes: this.tracker.list() });
   }
@@ -90,6 +102,7 @@ export class ChatController {
   broadcast(msg: unknown): void {
     const m = msg as { type?: string; message?: string };
     if (m?.type === 'error') activityLog(`ui-error | ${m.message ?? ''}`);
+    else if (m?.type === 'info') activityLog(`ui-info | ${m.message ?? ''}`);
     for (const host of this.hosts) {
       try {
         host.post(msg);
@@ -111,6 +124,8 @@ export class ChatController {
     }
     if (msg.type === 'webviewReady') {
       activityLog(`webview-ready | host=${host.hostId} nodes=${String(msg.nodes)}`);
+      // 补发初始状态：此时脚本已执行、消息不会再丢
+      this.postInit(host);
       return;
     }
     switch (msg.type) {
