@@ -10,16 +10,19 @@ import * as vscode from 'vscode';
 import { CkpService } from './ckp.ts';
 import { SidecarManager } from './sidecar.ts';
 import { buildInjectedContext } from './ide-bridge.ts';
+import { ChangeTracker, rejectChange, type FileChangeEvent } from './review.ts';
 
 export class ChatPanel {
   public static current: ChatPanel | null = null;
 
   private readonly panel: vscode.WebviewPanel;
   private readonly ckp: CkpService;
+  private readonly tracker: ChangeTracker;
   private readonly disposables: vscode.Disposable[] = [];
 
   constructor(context: vscode.ExtensionContext, ckp: CkpService, sidecar: SidecarManager) {
     this.ckp = ckp;
+    this.tracker = new ChangeTracker();
     this.panel = vscode.window.createWebviewPanel(
       'dshCursorkit.chat',
       'DSH CursorKit',
@@ -43,8 +46,14 @@ export class ChatPanel {
       void this.post({ type: 'sidecarStatus', status, info });
     };
 
-    // CKP 事件流 → 转发 webview
-    ckp.onEvent((evt) => void this.post({ type: 'event', event: evt }));
+    // CKP 事件流 → 转发 webview；file.changed 同时驱动 IDE 审查闭环（M1b）
+    ckp.onEvent((evt) => {
+      void this.post({ type: 'event', event: evt });
+      if (evt && typeof evt === 'object' && (evt as { type?: string }).type === 'file.changed') {
+        const change = (evt as { change?: FileChangeEvent }).change;
+        if (change) this.tracker.handleFileChanged(change, this.currentWorkspace());
+      }
+    });
 
     this.post({ type: 'init', model: this.defaultModel(), sidecar: sidecar.runtimeInfo });
   }
@@ -86,6 +95,24 @@ export class ChatPanel {
         await this.ckp.listSessions().catch(() => []);
         void this.post({ type: 'info', message: '新建会话：请使用会话列表或重启扩展（M1 完善）' });
         return;
+      case 'review.list': {
+        const changes = this.tracker.list();
+        void this.post({ type: 'review.list', changes });
+        return;
+      }
+      case 'review.diff': {
+        const path = String(msg.path ?? '');
+        if (path) await this.tracker.showDiff(path, this.currentWorkspace());
+        return;
+      }
+      case 'review.reject': {
+        const path = String(msg.path ?? '');
+        if (path) {
+          await rejectChange(path, this.currentWorkspace());
+          void this.post({ type: 'info', message: `已还原: ${path}` });
+        }
+        return;
+      }
       default:
         return;
     }

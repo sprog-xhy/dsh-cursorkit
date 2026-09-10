@@ -31,7 +31,11 @@ interface InfoMsg {
   type: 'info';
   message: string;
 }
-type Inbound = SidecarStatusMsg | InitMsg | EventMsg | ErrorMsg | InfoMsg;
+interface ReviewListMsg {
+  type: 'review.list';
+  changes: { path: string; additions: number; deletions: number; status: string }[];
+}
+type Inbound = SidecarStatusMsg | InitMsg | EventMsg | ErrorMsg | InfoMsg | ReviewListMsg;
 
 // --- 消息渲染模型 ---
 interface ChatItem {
@@ -42,6 +46,13 @@ interface ChatItem {
   status?: string;
 }
 
+interface ReviewChange {
+  path: string;
+  additions: number;
+  deletions: number;
+  status: string;
+}
+
 function App(): JSX.Element {
   const [items, setItems] = useState<ChatItem[]>([]);
   const [input, setInput] = useState('');
@@ -49,6 +60,8 @@ function App(): JSX.Element {
   const [model, setModel] = useState('');
   const [sidecarInfo, setSidecarInfo] = useState<string>('');
   const [busy, setBusy] = useState(false);
+  const [changes, setChanges] = useState<ReviewChange[]>([]);
+  const [showReview, setShowReview] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -75,6 +88,9 @@ function App(): JSX.Element {
           break;
         case 'info':
           pushItem({ id: `info-${Date.now()}`, role: 'system', text: msg.message });
+          break;
+        case 'review.list':
+          setChanges(msg.changes);
           break;
       }
     };
@@ -191,9 +207,36 @@ function App(): JSX.Element {
       <header className="topbar">
         <span className={`dot ${statusClass}`}>{statusIcon}</span>
         <span className="title">DSH CursorKit</span>
+        <button
+          className="btn-review"
+          onClick={() => {
+            setShowReview((v) => !v);
+            if (!showReview) post({ type: 'review.list' });
+          }}
+          title="审查 agent 改动"
+        >
+          {changes.length > 0 ? `改动 ${changes.length}` : '改动'}
+        </button>
         <span className="model">{model}</span>
         <span className="sidecar">{sidecarInfo}</span>
       </header>
+
+      {showReview && (
+        <div className="review-panel">
+          <div className="review-title">Agent 改动（点击 diff 审查，可还原）</div>
+          {changes.length === 0 && <div className="review-empty">暂无改动</div>}
+          {changes.map((c) => (
+            <div key={c.path} className="review-item">
+              <span className="review-path">{c.path}</span>
+              <span className="review-stat">
+                +{c.additions}/-{c.deletions}
+              </span>
+              <button onClick={() => post({ type: 'review.diff', path: c.path })}>diff</button>
+              <button onClick={() => post({ type: 'review.reject', path: c.path })}>还原</button>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="messages" ref={listRef}>
         {items.length === 0 && (
