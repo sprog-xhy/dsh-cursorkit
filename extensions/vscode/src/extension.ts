@@ -10,6 +10,7 @@ import { SidecarManager } from './sidecar.ts';
 import { CkpService } from './ckp.ts';
 import { ChatPanel } from './panel.ts';
 import { runInlineEdit } from './edit-code.ts';
+import { TabCompletionProvider } from './tab-completion.ts';
 
 let sidecar: SidecarManager | null = null;
 let ckp: CkpService | null = null;
@@ -36,7 +37,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     void runInlineEdit(ckp);
   });
   const tabCmd = vscode.commands.registerCommand('dshCursorkit.toggleTab', () => {
-    void vscode.window.showInformationMessage('Tab 补全将在 M3 提供（V2-DECISIONS D8）');
+    const cfg = vscode.workspace.getConfiguration('dshCursorkit.tab');
+    const cur = cfg.get<boolean>('enabled', true);
+    void cfg.update('enabled', !cur, vscode.ConfigurationTarget.Global);
   });
   const settingsCmd = vscode.commands.registerCommand('dshCursorkit.openSettings', () => {
     void vscode.commands.executeCommand('workbench.action.openSettings', 'dshCursorkit');
@@ -64,7 +67,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   if (autoStart) {
     sidecar.start().then(
       () => {
-        if (sidecar?.runtimeInfo) ckp?.attach(sidecar.createTransport());
+        if (sidecar?.runtimeInfo) {
+          ckp?.attach(sidecar.createTransport());
+          registerTabCompletion(context);
+        }
       },
       (err: Error) => {
         void vscode.window.showErrorMessage(`DSH sidecar 启动失败：${err.message}`);
@@ -132,4 +138,16 @@ export function deactivate(): void {
   sidecar?.dispose();
   sidecar = null;
   ckp = null;
+}
+
+/** 注册 Tab 补全（InlineCompletionProvider，需 sidecar 就绪）。 */
+function registerTabCompletion(context: vscode.ExtensionContext): void {
+  if (!ckp) return;
+  const provider = new TabCompletionProvider(ckp);
+  context.subscriptions.push(
+    vscode.languages.registerInlineCompletionItemProvider(
+      { pattern: '**' },
+      provider,
+    ),
+  );
 }

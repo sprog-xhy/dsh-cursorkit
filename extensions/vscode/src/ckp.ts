@@ -77,6 +77,50 @@ export class CkpService {
     return s;
   }
 
+  private completionSessionId: string | null = null;
+
+  /** Tab 补全专用会话（独立于聊天会话，避免互相干扰，V2-DECISIONS D8）。 */
+  async ensureCompletionSession(workspace: string): Promise<{ id: string }> {
+    if (!this.client) throw new Error('sidecar 未就绪');
+    if (this.completionSessionId) return { id: this.completionSessionId };
+    const s = await this.client.sessionCreate(workspace, {});
+    this.completionSessionId = s.id;
+    return { id: s.id };
+  }
+
+  /** 发送消息并等待 message.done 的完整文本（Tab 补全/行内编辑用）。 */
+  async sendAndWaitText(sessionId: string, prompt: string): Promise<string | null> {
+    if (!this.client) throw new Error('sidecar 未就绪');
+    return new Promise((resolve) => {
+      let collected = '';
+      const timeout = setTimeout(() => resolve(collected || null), 45000);
+      const off = this.transportSubscribeOnce(sessionId, (evt) => {
+        const e = evt as { type?: string; text?: string };
+        if (e?.type === 'message.delta' && typeof e.text === 'string') collected += e.text;
+        else if (e?.type === 'message.done' || e?.type === 'done' || e?.type === 'error' || e?.type === 'cancelled') {
+          clearTimeout(timeout);
+          off();
+          resolve(collected || null);
+        }
+      });
+      void this.client!.sessionSend(sessionId, prompt, { mode: 'ask' }).catch(() => {
+        clearTimeout(timeout);
+        off();
+        resolve(null);
+      });
+    });
+  }
+
+  /** 在 transport 上挂一次性订阅（补全/行内编辑专用，不碰聊天会话流）。 */
+  private transportSubscribeOnce(sessionId: string, handler: (evt: unknown) => void): () => void {
+    if (!this.transport) return () => undefined;
+    const disposer = this.transport.subscribe(sessionId, {
+      fromSeq: 0,
+      onEvent: handler,
+    });
+    return disposer;
+  }
+
   async sendMessage(
     text: string,
     opts?: { mentions?: string[]; mode?: 'ask' | 'edit' | 'agent' },
