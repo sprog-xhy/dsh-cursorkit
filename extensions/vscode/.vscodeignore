@@ -12,3 +12,4 @@ tsconfig.json
 # assets 保留 icon（其余已排除）
 .gitignore
 *.map
+vitest.config.ts
