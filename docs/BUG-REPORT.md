@@ -2,7 +2,7 @@
 
 > 排查日期：2026-09-10 ｜ 范围：`extensions/vscode/src`（扩展进程）、`extensions/vscode/webview/src`（React 面板）、
 > `packages/host-dsh`（dsh 插件侧回归确认）
-> 结论：**发现并修复 16 个实质缺陷**（其中 4 个「功能完全失效」级），另完成 12 项 UI 优化。
+> 结论：**发现并修复 18 个实质缺陷**（其中 4 个「功能完全失效」级），另完成 12 项 UI 优化。
 > 全部修复已提交（`2f837e4` 及其前后提交），扩展测试 41 项 / 内核测试 74 项全绿。
 
 ## 一、功能失效级（P0）
@@ -13,6 +13,9 @@
 | 2 | 选中文本只弹提示 `已自动附加选中文本`，**内容从未拼进消息** | 用户以为选中生效，agent 实际看不到任何代码 —— 功能谎报 | `ide-bridge.formatSelectionBlock` 把「文件+行号+语言+选中内容」真正拼进消息 |
 | 3 | 选择模型时硬编码 `wps/${id}` 前缀 | settings.yaml 中其它 provider 的模型（如 deepseek）选中后变成 `wps/deepseek-v4-flash` → 必然报错 | 改用模型的 `provider` 字段拼装（`fullModelName`），并加单测覆盖 |
 | 4 | `ckp.ensureSession` 复用已有会话时**忽略传入模型** | 切换模型后发送，仍用旧模型（用户感知：模型选择器没用） | 跟踪会话创建时模型，模型变化时重建会话；`session.switch` 来的会话标为未知以免误重建 |
+
+| 17 | `sidecar.ensureProfile` 生成的 profile patch **恰好写错**：`insert agent-loop`（dsh-base 已内置该 id → `duplicate loader entry id`，sidecar 直接启动失败）且**缺少必需的 `cursorkit-host`**（实测包内自带 patch 不会被自动加载 → runtime.json 永不出现） | 只在"已手工写好 profile"的机器上侥幸可用；换机器/新建 profile 时**完全无法启动** | 抽出纯模块 `profile-config.ts` 统一生成（insert cursorkit-host + agent-loop 顶层覆盖），并对已有 patch 做体检（`profilePatchNeedsRepair`）自动修复；**在全新 DSH_HOME 上实测启动成功并跑通完整链路** |
+| 18 | `sidecar.spawn` 启动超时/失败时不回收已拉起的进程 | 失败后残留孤儿 dsh 进程，下次启动看到半死实例 | `waitForRuntime` 失败即 `killProc('startup-failed')` |
 
 ## 二、功能缺陷级（P1）
 
@@ -56,10 +59,11 @@
 
 ## 五、回归防线
 
-**测试总数：156 项全绿**（protocol 11 / client 14 / host-dsh 48 / fixtures 6 / 扩展 77）
+**测试总数：166 项全绿**（protocol 11 / client 14 / host-dsh 48 / fixtures 6 / 扩展 87）
 
 - host-dsh 48：新增 `model-ref`（5，覆盖 P0 级模型解析缺陷）
 - 扩展 77：
+  - `profile-config`（10）：profile patch 生成/体检（直接覆盖 P0-17 的两种致命写法）
   - `activation`（7）：**首次真正执行 `activate()`/`deactivate()`**（通过 `test/stubs/vscode.ts` 桩模块，
     此前激活路径完全没有测试覆盖）
   - `components-render`（29）：用 `react-dom/server` 渲染每个组件，覆盖状态分支、

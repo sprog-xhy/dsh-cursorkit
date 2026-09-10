@@ -11,6 +11,15 @@ import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
+import {
+  DEFAULT_DSH_HOME,
+  PATCH_FILENAME,
+  buildProfilePackage,
+  buildProfilePatch,
+  profileDir,
+  profilePatchNeedsRepair,
+  RUNTIME_RELATIVE,
+} from './profile-config.ts';
 import * as vscode from 'vscode';
 import { HttpTransport } from '@dsh-cursorkit/client';
 
@@ -21,8 +30,6 @@ export interface RuntimeInfo {
   protocolVersion: string;
   dshVersion: string;
 }
-
-export const DEFAULT_DSH_HOME = join(homedir(), '.dsh-cursorkit');
 
 export type SidecarStatus = 'starting' | 'ready' | 'stopped' | 'error';
 
@@ -69,7 +76,7 @@ export class SidecarManager implements vscode.Disposable {
   }
 
   private runtimeFile(): string {
-    return join(this.dshHome, '.cursorkit', 'runtime.json');
+    return join(this.dshHome, RUNTIME_RELATIVE);
   }
 
   /** 探测本机 dsh 版本（PATH 上查找）。 */
@@ -137,7 +144,13 @@ export class SidecarManager implements vscode.Disposable {
       this.log(`spawn error: ${err.message}`);
     });
 
-    return this.waitForRuntime();
+    try {
+      return await this.waitForRuntime();
+    } catch (err) {
+      // 启动失败不要把 dsh 进程留在后台（否则下次启动会看到半死实例）
+      this.killProc('startup-failed');
+      throw err;
+    }
   }
 
   private async waitForRuntime(): Promise<RuntimeInfo> {
@@ -157,65 +170,38 @@ export class SidecarManager implements vscode.Disposable {
     throw new Error('sidecar 启动超时（30s）。请查看 Output 面板 "DSH CursorKit Sidecar"');
   }
 
-  private profilePatch(): string {
-    return [
-      '# dsh-cursorkit profile patch overlay (auto-generated, V2-DECISIONS D15)',
-      '# host 插件由 host-dsh 包内 cordis.patch.yml 自动加载；',
-      '# 这里仅显式启用 agent-loop（dsh-base 不含 agent-loop，需要它提供 ctx.agents.create 工厂）',
-      '- insert:',
-      '    - id: agent-loop',
-      "      name: '@deepseek-ai/dsh-agent-loop'",
-      '      inject: [agents, sessions, llm, tools, systemPrompt]',
-      '      config: {}',
-      '',
-    ].join('\n');
-  }
-
   /** 生成 cursorkit profile（幂等；patch 内容缺失 agent-loop 时重建）。 */
   private async ensureProfile(): Promise<void> {
-    const profileDir = join(this.dshHome, 'profiles', 'cursorkit');
-    const pkgPath = join(profileDir, 'package.json');
-    const patchPath = join(profileDir, 'cordis.patch.yml');
+    const dir = profileDir(this.dshHome);
+    const pkgPath = join(dir, 'package.json');
+    const patchPath = join(dir, PATCH_FILENAME);
     const absRepo = repoRoot();
     const hostPath = join(absRepo, 'packages', 'host-dsh');
     const protocolPath = join(absRepo, 'packages', 'protocol');
-    const patch = this.profilePatch();
 
-    let needPkg = !existsSync(pkgPath);
+    const needPkg = !existsSync(pkgPath);
     let needPatch = !existsSync(patchPath);
-    if (!needPatch && existsSync(patchPath)) {
-      const existing = readFileSync(patchPath, 'utf8');
-      // host 插件由 host-dsh 包内 patch 自动加载；profile patch 只负责
-      // 显式启用 agent-loop（dsh-base 不含 agent-loop，V2-DECISIONS D15）
-      if (!existing.includes('agent-loop')) needPatch = true;
+    if (!needPatch) {
+      try {
+        needPatch = profilePatchNeedsRepair(readFileSync(patchPath, 'utf8'));
+      } catch {
+        needPatch = true;
+      }
     }
     if (!needPkg && !needPatch) {
-      this.log(`profile ok: ${profileDir}`);
+      this.log(`profile ok: ${dir}`);
       return;
     }
 
-    await mkdir(profileDir, { recursive: true, mode: 0o700 });
+    await mkdir(dir, { recursive: true, mode: 0o700 });
     if (needPkg) {
-      await writeFile(
-        pkgPath,
-        JSON.stringify(
-          {
-            name: 'dsh-profile-cursorkit',
-            private: true,
-            dependencies: {
-              '@dsh-cursorkit/host-dsh': `file:${hostPath}`,
-              '@dsh-cursorkit/protocol': `file:${protocolPath}`,
-            },
-            dsh: { profile: { bundles: ['@deepseek-ai/dsh-base'] } },
-          },
-          null,
-          2,
-        ),
-        { mode: 0o600 },
-      );
+      await writeFile(pkgPath, buildProfilePackage(hostPath, protocolPath), { mode: 0o600 });
     }
-    await writeFile(patchPath, patch, { mode: 0o600 });
-    this.log(`profile ${needPkg ? 'created' : 'patch repaired'}: ${profileDir}`);
+    if (needPatch) {
+      await writeFile(patchPath, buildProfilePatch(), { mode: 0o600 });
+      this.log(`profile patch ${needPkg ? 'created' : 'repaired'}: ${patchPath}`);
+    }
+    this.log(`profile ready: ${dir}`);
   }
 
   private permissionMode(): string {
@@ -249,6 +235,20 @@ export class SidecarManager implements vscode.Disposable {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  /** 结束 sidecar 进程（幂等）。 */
+  private killProc(reason: string): void {
+    const proc = this.proc;
+    this.proc = null;
+    if (proc && !proc.killed) {
+      this.log(`kill sidecar (${reason})`);
+      try {
+        proc.kill('SIGTERM');
+      } catch {
+        /* ignore */
+      }
     }
   }
 
