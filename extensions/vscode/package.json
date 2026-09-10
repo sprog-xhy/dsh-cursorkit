@@ -52,6 +52,10 @@
       {
         "command": "dshCursorkit.checkpoints",
         "title": "DSH CursorKit: Checkpoints (时间线)"
+      },
+      {
+        "command": "dshCursorkit.focusChatView",
+        "title": "DSH CursorKit: 在侧边栏打开 Chat"
       }
     ],
     "keybindings": [
@@ -63,7 +67,7 @@
       {
         "command": "dshCursorkit.editCode",
         "key": "ctrl+k",
-        "when": "editorTextFocus && !suggestWidgetVisible"
+        "when": "editorHasSelection && editorTextFocus && !suggestWidgetVisible && !inDebugRepl"
       },
       {
         "command": "dshCursorkit.toggleTab",
@@ -83,7 +87,7 @@
     "views": {
       "dshCursorkit": [
         {
-          "id": "dshCursorkit.chat",
+          "id": "dshCursorkit.chatView",
           "name": "Chat",
           "type": "webview"
         },

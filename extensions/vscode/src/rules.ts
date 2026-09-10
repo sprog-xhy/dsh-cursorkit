@@ -1,54 +1,61 @@
 /**
  * Rules 支持（V2-DECISIONS D12）：兼容 Cursor 的 rules 体系。
  *
- * 读取优先级（Cursor 兼容）：
- * 1. 项目根 `.cursorrules`
- * 2. `.cursor/rules/*.mdc`（frontmatter: description/globs，匹配文件时注入）
- * 3. 全局 `~/.cursorrules`
+ * 读取优先级：
+ * 1. 项目根 `.cursorrules`（总是生效）
+ * 2. `.cursor/rules/*.mdc`（frontmatter: description / globs / alwaysApply，按 glob 匹配当前文件）
+ * 3. 全局 `~/.cursorrules`（总是生效）
  *
- * 注入方式：作为 system 上下文附加到首次消息（host-dsh 的 session.send 注入）。
+ * 关键修复：
+ * - 原先忽略 frontmatter 的 `globs` → 所有规则无条件注入（与 Cursor 语义不符）
+ * - 原先把 frontmatter（--- 块）原样塞进提示词，浪费 token
+ * - 原先每条消息都注入完整 rules（重复计费）→ 由调用方按会话+内容哈希去重
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, basename, extname } from 'node:path';
-import * as vscode from 'vscode';
+import { extname, join } from 'node:path';
 
-export interface RulesBundle {
-  /** 全局 rules（~/.cursorrules） */
-  global: string;
-  /** 项目 rules（.cursorrules + .cursor/rules/*.mdc 全文） */
-  project: string[];
+/** 一条项目级 rule。 */
+export interface ProjectRule {
+  /** 文件名（用于展示）。 */
+  name: string;
+  /** 规则正文（已剥离 frontmatter）。 */
+  body: string;
+  /** frontmatter globs（undefined = 无 glob 限制）。 */
+  globs?: string[];
+  /** frontmatter alwaysApply。 */
+  alwaysApply: boolean;
+  /** frontmatter description（展示用）。 */
+  description?: string;
 }
 
-/** 读取当前 workspace 的 rules 全集。 */
+export interface RulesBundle {
+  global: string;
+  project: ProjectRule[];
+}
+
+/** 读取 rules 全集。 */
 export function loadRules(workspace: string): RulesBundle {
-  const global = loadGlobalRules();
-  const project = loadProjectRules(workspace);
-  return { global, project };
+  return { global: loadGlobalRules(), project: loadProjectRules(workspace) };
 }
 
 function loadGlobalRules(): string {
-  const paths = [join(homedir(), '.cursorrules')];
-  for (const p of paths) {
-    if (existsSync(p)) {
-      try {
-        return readFileSync(p, 'utf8');
-      } catch {
-        /* ignore */
-      }
-    }
+  const p = join(homedir(), '.cursorrules');
+  try {
+    return existsSync(p) ? readFileSync(p, 'utf8') : '';
+  } catch {
+    return '';
   }
-  return '';
 }
 
-function loadProjectRules(workspace: string): string[] {
-  const out: string[] = [];
-  // 1. 项目根 .cursorrules
+function loadProjectRules(workspace: string): ProjectRule[] {
+  const out: ProjectRule[] = [];
+  // 1. 项目根 .cursorrules（总是生效）
   const rootRules = join(workspace, '.cursorrules');
   if (existsSync(rootRules)) {
     try {
-      const content = readFileSync(rootRules, 'utf8');
-      if (content.trim()) out.push(`## .cursorrules（项目根）\n${content}`);
+      const body = readFileSync(rootRules, 'utf8').trim();
+      if (body) out.push({ name: '.cursorrules', body, alwaysApply: true });
     } catch {
       /* ignore */
     }
@@ -56,37 +63,113 @@ function loadProjectRules(workspace: string): string[] {
   // 2. .cursor/rules/*.mdc
   const rulesDir = join(workspace, '.cursor', 'rules');
   if (existsSync(rulesDir)) {
+    let files: string[] = [];
     try {
-      for (const f of readdirSync(rulesDir)) {
-        if (extname(f).toLowerCase() === '.mdc') {
-          const content = readFileSync(join(rulesDir, f), 'utf8');
-          if (content.trim()) out.push(`## ${basename(f)}（.cursor/rules）\n${content}`);
-        }
-      }
+      files = readdirSync(rulesDir);
     } catch {
-      /* ignore */
+      files = [];
+    }
+    for (const f of files) {
+      if (extname(f).toLowerCase() !== '.mdc') continue;
+      try {
+        const parsed = parseMdc(readFileSync(join(rulesDir, f), 'utf8'));
+        if (!parsed.body.trim()) continue;
+        out.push({ name: f, ...parsed });
+      } catch {
+        /* ignore */
+      }
     }
   }
   return out;
 }
 
-/** 把 rules 转成注入文本（附加到消息）。 */
-export function rulesToPrompt(rules: RulesBundle): string {
+/** 解析 .mdc：frontmatter（--- 包裹）+ 正文。 */
+export function parseMdc(raw: string): Omit<ProjectRule, 'name'> {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(raw.replace(/^\uFEFF/, ''));
+  if (!m) return { body: raw.trim(), alwaysApply: true };
+  const [, front, body] = m;
+  const meta: Record<string, string> = {};
+  for (const line of front.split(/\r?\n/)) {
+    const kv = /^([A-Za-z_][\w-]*)\s*:\s*(.*)$/.exec(line.trim());
+    if (kv) meta[kv[1].toLowerCase()] = kv[2].replace(/^["']|["']$/g, '').trim();
+  }
+  const globsRaw = meta['globs'] ?? '';
+  const globs = globsRaw
+    .split(',')
+    .map((g) => g.trim())
+    .filter(Boolean);
+  return {
+    body: body.trim(),
+    globs: globs.length > 0 ? globs : undefined,
+    alwaysApply: meta['alwaysapply'] === 'true' || globs.length === 0,
+    description: meta['description'],
+  };
+}
+
+/**
+ * 生成注入文本。
+ * @param activeFileRel 当前活动文件的 workspace 相对路径（用于 globs 过滤）
+ */
+export function rulesToPrompt(rules: RulesBundle, activeFileRel?: string): string {
+  const applicable = rules.project.filter((r) => ruleApplies(r, activeFileRel));
   const parts: string[] = [];
-  if (rules.project.length > 0) parts.push(`【项目 Rules】\n${rules.project.join('\n\n')}`);
-  if (rules.global.trim()) parts.push(`【全局 Rules】\n${rules.global}`);
+  if (applicable.length > 0) {
+    parts.push(
+      `【项目 Rules】\n${applicable
+        .map((r) => `### ${r.name}\n${r.body}`)
+        .join('\n\n')}`,
+    );
+  }
+  if (rules.global.trim()) parts.push(`【全局 Rules】\n${rules.global.trim()}`);
   if (parts.length === 0) return '';
   return `\n\n以下规则必须遵守：\n${parts.join('\n\n')}`;
 }
 
-/** 当前 workspace（无 active editor 时第一个 root）。 */
-export function currentWorkspace(): string {
-  const folders = vscode.workspace.workspaceFolders;
-  if (!folders || folders.length === 0) return '';
-  const active = vscode.window.activeTextEditor?.document.uri;
-  if (active) {
-    const f = vscode.workspace.getWorkspaceFolder(active);
-    if (f) return f.uri.fsPath;
+/** 规则是否适用于当前文件。 */
+export function ruleApplies(rule: ProjectRule, activeFileRel?: string): boolean {
+  if (!rule.globs || rule.globs.length === 0) return true;
+  if (!activeFileRel) return true; // 无活动文件信息时不误杀
+  return rule.globs.some((g) => matchGlob(g, activeFileRel));
+}
+
+/** 简化 glob 匹配（支持 `**`、`*`、`?`）。 */
+export function matchGlob(glob: string, path: string): boolean {
+  const norm = path.replace(/^\.\//, '');
+  let re = '';
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i];
+    if (c === '*') {
+      if (glob[i + 1] === '*') {
+        // `**/` 可匹配零层或多层目录
+        if (glob[i + 2] === '/') {
+          re += '(?:.*/)?';
+          i += 2;
+        } else {
+          re += '.*';
+          i += 1;
+        }
+      } else {
+        re += '[^/]*';
+      }
+    } else if (c === '?') {
+      re += '[^/]';
+    } else if ('\\^$.|+()[]{}'.includes(c)) {
+      re += `\\${c}`;
+    } else {
+      re += c;
+    }
   }
-  return folders[0].uri.fsPath;
+  try {
+    return new RegExp(`^${re}$`).test(norm);
+  } catch {
+    return false;
+  }
+}
+
+/** 规则内容指纹（用于"内容变化才重新注入"）。 */
+export function rulesFingerprint(rules: RulesBundle): string {
+  const s = `${rules.global}|${rules.project.map((r) => `${r.name}:${r.body}`).join('|')}`;
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return String(h);
 }

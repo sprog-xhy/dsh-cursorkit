@@ -1,272 +1,108 @@
 /**
- * Chat webview 面板（V2-DECISIONS D5/D6/D7）。
+ * Chat 宿主：编辑器面板（ChatPanel）+ 活动栏侧边栏视图（SidebarChatViewProvider）。
  *
- * webview(React) ←postMessage→ 扩展进程(CkpService) ←CKP→ sidecar
- *
- * M0 范围：打开面板 / 创建或复用会话 / 发送 / 停止 /
- * 消息流实时渲染（session.delta / tool.call / message.done 等）。
+ * 修复：侧边栏视图原先 resolveWebviewView 只是去调用 openChat（打开另一个编辑器面板），
+ * 视图本身永远空白。现在两者都渲染同一套 webview，并挂到同一个 ChatController。
  */
 import * as vscode from 'vscode';
-import { CkpService } from './ckp.ts';
-import { SidecarManager } from './sidecar.ts';
-import { buildInjectedContext } from './ide-bridge.ts';
-import { ChangeTracker, rejectChange, type FileChangeEvent } from './review.ts';
-import { loadRules, rulesToPrompt } from './rules.ts';
+import type { ChatController, ChatHost } from './chat-controller.ts';
+import { renderWebviewHtml } from './webview-html.ts';
 
-export class ChatPanel {
+/** 编辑器面板宿主（Ctrl+Alt+C / 命令打开）。 */
+export class ChatPanel implements ChatHost {
   public static current: ChatPanel | null = null;
 
+  readonly kind = 'panel' as const;
+  readonly hostId = `panel-${Date.now()}`;
   private readonly panel: vscode.WebviewPanel;
-  private readonly ckp: CkpService;
-  private readonly tracker: ChangeTracker;
   private readonly disposables: vscode.Disposable[] = [];
 
-  constructor(context: vscode.ExtensionContext, ckp: CkpService, sidecar: SidecarManager) {
-    this.ckp = ckp;
-    this.tracker = new ChangeTracker();
-    this.panel = vscode.window.createWebviewPanel(
-      'dshCursorkit.chat',
-      'DSH CursorKit',
-      vscode.ViewColumn.Beside,
-      {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'dist', 'webview')],
-      },
-    );
-    this.panel.webview.html = this.renderHtml(context, this.panel.webview);
-    this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
+  constructor(
+    public readonly context: vscode.ExtensionContext,
+    private readonly controller: ChatController,
+  ) {
+    this.panel = vscode.window.createWebviewPanel('dshCursorkit.chat', 'DSH CursorKit', vscode.ViewColumn.Beside, {
+      enableScripts: true,
+      retainContextWhenHidden: true,
+      localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'dist', 'webview')],
+    });
+    this.panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'assets', 'icon.png');
+    this.panel.webview.html = renderWebviewHtml(context, this.panel.webview);
     this.panel.webview.onDidReceiveMessage(
-      (msg) => void this.handleMessage(msg),
+      (msg) => void this.controller.handleMessage(msg, this),
       null,
       this.disposables,
     );
-
-    // sidecar 状态变化 → 通知 webview
-    sidecar.onStatusChange = (status, info) => {
-      void this.post({ type: 'sidecarStatus', status, info });
-    };
-
-    // CKP 事件流 → 转发 webview；file.changed 同时驱动 IDE 审查闭环（M1b）
-    ckp.onEvent((evt) => {
-      void this.post({ type: 'event', event: evt });
-      if (evt && typeof evt === 'object' && (evt as { type?: string }).type === 'file.changed') {
-        const change = (evt as { change?: FileChangeEvent }).change;
-        if (change) this.tracker.handleFileChanged(change, this.currentWorkspace());
-      }
-    });
-
-    this.post({ type: 'init', model: this.defaultModel(), sidecar: sidecar.runtimeInfo });
+    this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
+    this.controller.attach(this);
+    ChatPanel.current = this;
   }
 
-  private defaultModel(): string {
-    return vscode.workspace
-      .getConfiguration('dshCursorkit.chat')
-      .get<string>('defaultModel', 'wps/moonshot/kimi-k2.7-code');
+  get webview(): vscode.Webview {
+    return this.panel.webview;
   }
 
-  private async handleMessage(msg: { type: string; [k: string]: unknown }): Promise<void> {
-    switch (msg.type) {
-      case 'send': {
-        const text = String(msg.text ?? '');
-        if (!text.trim()) return;
-        try {
-          const workspace = this.currentWorkspace();
-          const selectedModel = String(msg.model ?? '').trim() || this.defaultModel();
-          await this.ckp.ensureSession(workspace, selectedModel);
-          // 上下文注入（V2-DECISIONS D18）：@file 提及 + 当前选中自动携带
-          const ctx = buildInjectedContext(text, workspace);
-          if (ctx.selection && ctx.files.length === 0) {
-            // 仅有选中文本：附加到消息（Cursor 习惯：选中即上下文）
-            void this.post({
-              type: 'info',
-              message: `已自动附加选中文本（${ctx.selection.length} 字符）`,
-            });
-          }
-          // Rules 注入（V2-DECISIONS D12）：.cursorrules / .cursor/rules / ~/.cursorrules
-          const rulesText = rulesToPrompt(loadRules(workspace));
-          await this.ckp.sendMessage(rulesText ? `${text}\n${rulesText}` : text, {
-            mentions: ctx.mentions,
-            mode: (msg.mode as 'ask' | 'edit' | 'agent') ?? 'agent',
-          });
-        } catch (err) {
-          void this.post({ type: 'error', message: (err as Error).message });
-        }
-        return;
-      }
-      case 'stop':
-        await this.ckp.cancel().catch(() => undefined);
-        return;
-      case 'newSession': {
-        try {
-          const workspace = this.currentWorkspace();
-          const session = await this.ckp.newSession(workspace, this.defaultModel());
-          void this.post({ type: 'session.switched', sessionId: session.id });
-          void this.post({ type: 'info', message: `新建会话 ${session.id.slice(0, 8)}` });
-        } catch (err) {
-          void this.post({ type: 'error', message: `新建会话失败: ${(err as Error).message}` });
-        }
-        return;
-      }
-      case 'session.switch': {
-        const id = String(msg.sessionId ?? '');
-        if (id) {
-          await this.ckp.switchSession(id);
-          void this.post({ type: 'session.switched', sessionId: id });
-        }
-        return;
-      }
-      case 'session.list': {
-        try {
-          const sessions = await this.ckp.listSessions();
-          void this.post({ type: 'session.list', sessions });
-        } catch (err) {
-          void this.post({ type: 'error', message: `会话列表读取失败: ${(err as Error).message}` });
-        }
-        return;
-      }
-      case 'model.list': {
-        try {
-          const models = await this.ckp.listModels();
-          void this.post({ type: 'model.list', models });
-        } catch (err) {
-          void this.post({ type: 'error', message: `模型列表读取失败: ${(err as Error).message}` });
-        }
-        return;
-      }
-      case 'settings.get': {
-        const workspace = this.currentWorkspace();
-        const rules = loadRules(workspace);
-        void this.post({
-          type: 'settings.get',
-          rules: {
-            global: rules.global,
-            project: rules.project,
-          },
-          config: {
-            permissionMode: vscode.workspace.getConfiguration('dshCursorkit.permission').get('mode', 'danger-full-access'),
-            tabEnabled: vscode.workspace.getConfiguration('dshCursorkit.tab').get('enabled', true),
-          },
-        });
-        return;
-      }
-      case 'settings.update': {
-        const patch = (msg.patch ?? {}) as Record<string, unknown>;
-        if (typeof patch.tabEnabled === 'boolean') {
-          await vscode.workspace
-            .getConfiguration('dshCursorkit.tab')
-            .update('enabled', patch.tabEnabled, vscode.ConfigurationTarget.Global);
-        }
-        if (typeof patch.permissionMode === 'string') {
-          await vscode.workspace
-            .getConfiguration('dshCursorkit.permission')
-            .update('mode', patch.permissionMode, vscode.ConfigurationTarget.Global);
-        }
-        void this.post({ type: 'info', message: '设置已更新' });
-        return;
-      }
-      case 'review.list': {
-        const changes = this.tracker.list();
-        void this.post({ type: 'review.list', changes });
-        return;
-      }
-      case 'review.diff': {
-        const path = String(msg.path ?? '');
-        if (path) await this.tracker.showDiff(path, this.currentWorkspace());
-        return;
-      }
-      case 'review.reject': {
-        const path = String(msg.path ?? '');
-        if (path) {
-          await rejectChange(path, this.currentWorkspace());
-          void this.post({ type: 'info', message: `已还原: ${path}` });
-        }
-        return;
-      }
-      case 'checkpoint.list': {
-        const sessionId = String(msg.sessionId ?? '') || this.ckp.sessionId || '';
-        if (sessionId && this.ckp.ready) {
-          try {
-            const checkpoints = await this.ckp.checkpointList(sessionId);
-            void this.post({ type: 'checkpoint.list', sessionId, checkpoints });
-          } catch (err) {
-            void this.post({ type: 'error', message: `checkpoint 读取失败: ${(err as Error).message}` });
-          }
-        }
-        return;
-      }
-      case 'checkpoint.restore': {
-        const checkpointId = String(msg.checkpointId ?? '');
-        if (checkpointId && this.ckp.ready) {
-          try {
-            await this.ckp.checkpointRestore(checkpointId);
-            void this.post({ type: 'info', message: `已恢复 checkpoint ${checkpointId.slice(0, 8)}` });
-          } catch (err) {
-            void this.post({ type: 'error', message: `恢复失败: ${(err as Error).message}` });
-          }
-        }
-        return;
-      }
-      default:
-        return;
-    }
+  post(msg: unknown): void {
+    void this.panel.webview.postMessage(msg);
   }
 
-  private currentWorkspace(): string {
-    const folders = vscode.workspace.workspaceFolders;
-    if (folders && folders.length > 0) {
-      const active = vscode.window.activeTextEditor?.document.uri;
-      if (active) {
-        const f = vscode.workspace.getWorkspaceFolder(active);
-        if (f) return f.uri.fsPath;
-      }
-      return folders[0].uri.fsPath;
-    }
-    return vscode.env.appRoot; // 无工作区时兜底
+  reveal(): void {
+    this.panel.reveal(undefined, true);
   }
 
-  private post(msg: unknown): Thenable<boolean> {
-    return this.panel.webview.postMessage(msg);
-  }
-
-  private renderHtml(context: vscode.ExtensionContext, webview: vscode.Webview): string {
-    const webviewRoot = vscode.Uri.joinPath(context.extensionUri, 'dist', 'webview');
-    const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'chat.js'));
-    const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewRoot, 'chat.css'));
-    const nonce = getNonce();
-    return `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} data:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
-<link rel="stylesheet" href="${styleUri}">
-</head>
-<body>
-<div id="root"></div>
-<script nonce="${nonce}" src="${scriptUri}"></script>
-</body>
-</html>`;
-  }
-
-  /** 请求 webview 打开 checkpoint 时间线（由命令触发）。 */
-  public requestCheckpoints(): void {
-    void this.post({ type: 'checkpoint.open' });
-  }
-
-  public reveal(): void {
-    this.panel.reveal();
-  }
-
-  public dispose(): void {
-    ChatPanel.current = null;
+  dispose(): void {
+    if (ChatPanel.current === this) ChatPanel.current = null;
+    this.controller.detach(this);
     this.disposables.forEach((d) => d.dispose());
   }
 }
 
-function getNonce(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let text = '';
-  for (let i = 0; i < 32; i++) text += chars.charAt(Math.floor(Math.random() * chars.length));
-  return text;
+/** 活动栏侧边栏视图宿主。 */
+export class SidebarChatViewProvider implements vscode.WebviewViewProvider {
+  public static readonly viewType = 'dshCursorkit.chatView';
+
+  constructor(private readonly controller: ChatController) {}
+
+  resolveWebviewView(view: vscode.WebviewView): void {
+    view.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [vscode.Uri.joinPath(this.controller.extensionUri, 'dist', 'webview')],
+    };
+    const host = new SidebarHost(view, this.controller);
+    view.onDidDispose(() => host.dispose());
+  }
+}
+
+class SidebarHost implements ChatHost {
+  readonly kind = 'view' as const;
+  readonly hostId = `view-${Date.now()}`;
+  private readonly disposables: vscode.Disposable[] = [];
+
+  constructor(
+    private readonly view: vscode.WebviewView,
+    private readonly controller: ChatController,
+  ) {
+    this.view.webview.html = renderWebviewHtml(this.controller.extensionContext, this.view.webview);
+    this.disposables.push(
+      this.view.webview.onDidReceiveMessage((msg) => void this.controller.handleMessage(msg, this)),
+    );
+    this.controller.attach(this);
+  }
+
+  get context(): vscode.ExtensionContext {
+    return this.controller.extensionContext;
+  }
+
+  get webview(): vscode.Webview {
+    return this.view.webview;
+  }
+
+  post(msg: unknown): void {
+    void this.view.webview.postMessage(msg);
+  }
+
+  dispose(): void {
+    this.controller.detach(this);
+    this.disposables.forEach((d) => d.dispose());
+  }
 }

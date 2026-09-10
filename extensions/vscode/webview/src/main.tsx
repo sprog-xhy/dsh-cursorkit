@@ -1,9 +1,17 @@
 /**
- * Chat webview 入口（阶段三产物）。
- * 消息协议接线逻辑不变（handoff §1.3 禁止改动协议）；
- * UI 由拆分后的组件组装：TopBar + 五个 Panel + MessageList + Composer。
+ * Chat webview 入口。
+ *
+ * 修复的问题：
+ * - 切换会话时不清空消息 → 与回放的旧会话历史串台
+ * - 选择模型时硬编码 `wps/` 前缀 → 其它 provider 的模型选不中
+ * - 流式输出时不自动滚动（依赖 items.length 不变）
+ * - 新建会话不带当前选择的模型
+ *
+ * 新增/优化：
+ * - 草稿持久化（webview state）、Esc 关闭面板、面板互斥
+ * - 流式"生成中"指示、滚动到底部按钮、错误消息分级
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { CkpEvent } from '@dsh-cursorkit/protocol';
 import './tokens.css';
@@ -18,6 +26,7 @@ import type {
   SessionInfo,
   SettingsData,
 } from './types.ts';
+import { fullModelName } from './types.ts';
 import { TopBar } from './components/TopBar.tsx';
 import { MessageList } from './components/MessageList.tsx';
 import { Composer } from './components/Composer.tsx';
@@ -29,7 +38,7 @@ import {
   SettingsPanel,
 } from './components/panels.tsx';
 
-// --- 入站消息类型（与 panel.ts 协议一致，禁止改动） ---
+// ── 入站消息 ─────────────────────────────────────────────
 interface SidecarStatusMsg {
   type: 'sidecarStatus';
   status: string;
@@ -38,6 +47,7 @@ interface SidecarStatusMsg {
 interface InitMsg {
   type: 'init';
   model: string;
+  sessionId?: string;
   sidecar?: { port?: number; dshVersion?: string } | null;
 }
 interface EventMsg {
@@ -67,6 +77,7 @@ interface CheckpointListMsg {
 interface SessionListMsg {
   type: 'session.list';
   sessions: SessionInfo[];
+  activeSessionId?: string;
 }
 interface SessionSwitchedMsg {
   type: 'session.switched';
@@ -78,8 +89,8 @@ interface ModelListMsg {
 }
 interface SettingsGetMsg {
   type: 'settings.get';
-  rules: { global: string; project: string[] };
-  config: { permissionMode: string; tabEnabled: boolean };
+  rules: SettingsData['rules'];
+  config: SettingsData['config'];
 }
 type Inbound =
   | SidecarStatusMsg
@@ -95,6 +106,9 @@ type Inbound =
   | ModelListMsg
   | SettingsGetMsg;
 
+/** 面板互斥标识（同时只开一个）。 */
+type PanelKind = 'sessions' | 'models' | 'review' | 'checkpoints' | 'settings' | null;
+
 function App(): JSX.Element {
   const [items, setItems] = useState<ChatItem[]>([]);
   const [input, setInput] = useState('');
@@ -103,18 +117,21 @@ function App(): JSX.Element {
   const [sidecarInfo, setSidecarInfo] = useState('');
   const [busy, setBusy] = useState(false);
   const [changes, setChanges] = useState<ReviewChange[]>([]);
-  const [showReview, setShowReview] = useState(false);
   const [checkpoints, setCheckpoints] = useState<CheckpointInfo[]>([]);
-  const [showCheckpoints, setShowCheckpoints] = useState(false);
   const [mode, setMode] = useState<ChatMode>('agent');
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [activeSessionId, setActiveSessionId] = useState('');
-  const [showSessions, setShowSessions] = useState(false);
   const [models, setModels] = useState<ModelInfo[]>([]);
-  const [showModels, setShowModels] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
   const [settingsData, setSettingsData] = useState<SettingsData | null>(null);
+  const [panel, setPanel] = useState<PanelKind>(null);
+  const [dismissedHint, setDismissedHint] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  /** 面板开关（互斥：打开一个就关掉其它）。 */
+  const togglePanel = useCallback((kind: Exclude<PanelKind, null>, request?: () => void) => {
+    setPanel((cur) => (cur === kind ? null : kind));
+    request?.();
+  }, []);
 
   useEffect(() => {
     const handler = (ev: MessageEvent) => {
@@ -122,20 +139,21 @@ function App(): JSX.Element {
       switch (msg.type) {
         case 'init':
           setModel(msg.model);
+          if (msg.sessionId) setActiveSessionId(msg.sessionId);
           if (msg.sidecar) {
-            setSidecarInfo(`pid=${msg.sidecar.port} dsh=${msg.sidecar.dshVersion ?? '?'}`);
+            setSidecarInfo(`:${msg.sidecar.port} · dsh ${msg.sidecar.dshVersion ?? '?'}`);
             setConnected('ready');
           }
           break;
         case 'sidecarStatus':
           setConnected(msg.status as ConnectionStatus);
-          if (msg.info) setSidecarInfo(`port=${msg.info.port} dsh=${msg.info.dshVersion ?? '?'}`);
+          if (msg.info) setSidecarInfo(`:${msg.info.port} · dsh ${msg.info.dshVersion ?? '?'}`);
           break;
         case 'event':
           handleEvent(msg.event);
           break;
         case 'error':
-          pushItem({ id: `err-${Date.now()}`, role: 'system', text: `⚠️ ${msg.message}` });
+          pushItem({ id: `err-${Date.now()}`, role: 'system', text: msg.message, level: 'error' });
           break;
         case 'info':
           pushItem({ id: `info-${Date.now()}`, role: 'system', text: msg.message });
@@ -144,7 +162,7 @@ function App(): JSX.Element {
           setChanges(msg.changes);
           break;
         case 'checkpoint.open':
-          setShowCheckpoints(true);
+          setPanel('checkpoints');
           post({ type: 'checkpoint.list', sessionId: '' });
           break;
         case 'checkpoint.list':
@@ -152,8 +170,12 @@ function App(): JSX.Element {
           break;
         case 'session.list':
           setSessions(msg.sessions);
+          if (msg.activeSessionId) setActiveSessionId(msg.activeSessionId);
           break;
         case 'session.switched':
+          // 修复：切换/新建会话必须清空消息，否则与回放的历史串台
+          setItems([]);
+          setBusy(false);
           setActiveSessionId(msg.sessionId);
           post({ type: 'checkpoint.list', sessionId: msg.sessionId });
           break;
@@ -161,7 +183,9 @@ function App(): JSX.Element {
           setModels(msg.models);
           break;
         case 'settings.get':
-          setSettingsData(msg);
+          setSettingsData({ rules: msg.rules, config: msg.config });
+          break;
+        default:
           break;
       }
     };
@@ -169,8 +193,30 @@ function App(): JSX.Element {
     return () => window.removeEventListener('message', handler);
   }, []);
 
+  // 草稿持久化（VSCode webview state，面板隐藏/重开不丢）
+  useEffect(() => {
+    const saved = vscodeApi.getState() as { draft?: string; mode?: ChatMode } | undefined;
+    if (saved?.draft) setInput(saved.draft);
+    if (saved?.mode) setMode(saved.mode);
+  }, []);
+  useEffect(() => {
+    vscodeApi.setState({ draft: input, mode });
+  }, [input, mode]);
+
+  // Esc 关闭面板
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && panel) {
+        e.stopPropagation();
+        setPanel(null);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [panel]);
+
   function pushItem(item: ChatItem): void {
-    setItems((prev) => [...prev, item]);
+    setItems((prev) => [...prev, { ts: Date.now(), ...item }]);
   }
 
   function updateItem(id: string, fn: (it: ChatItem) => ChatItem): void {
@@ -179,11 +225,10 @@ function App(): JSX.Element {
 
   function handleEvent(evt: CkpEvent): void {
     switch (evt.type) {
-      case 'message.user': {
+      case 'message.user':
         pushItem({ id: `u-${evt.ts}`, role: 'user', text: evt.text });
         setBusy(true);
         break;
-      }
       case 'message.delta': {
         const id = `a-${evt.sessionId}`;
         setItems((prev) => {
@@ -193,7 +238,7 @@ function App(): JSX.Element {
             copy[copy.length - 1] = { ...last, text: last.text + evt.text };
             return copy;
           }
-          return [...prev, { id, role: 'assistant', text: evt.text }];
+          return [...prev, { id, role: 'assistant', text: evt.text, ts: evt.ts }];
         });
         break;
       }
@@ -206,7 +251,7 @@ function App(): JSX.Element {
             copy[copy.length - 1] = { ...last, text: last.text + evt.text };
             return copy;
           }
-          return [...prev, { id, role: 'system', text: `思考: ${evt.text}` }];
+          return [...prev, { id, role: 'thinking', text: evt.text, ts: evt.ts }];
         });
         break;
       }
@@ -222,33 +267,29 @@ function App(): JSX.Element {
         setBusy(true);
         break;
       }
-      case 'tool.done': {
+      case 'tool.done':
         updateItem(`c-${evt.callId}`, (it) => ({
           ...it,
           status: evt.status === 'success' ? 'done' : 'failed',
         }));
         break;
-      }
-      case 'tool.output': {
+      case 'tool.output':
         updateItem(`c-${evt.callId}`, (it) => ({
           ...it,
-          toolName: `${it.toolName ?? ''}${it.toolName ? '\n' : ''}${evt.output.slice(0, 500)}`,
+          output: `${it.output ?? ''}${it.output ? '\n' : ''}${evt.output}`,
         }));
         break;
-      }
       case 'message.done':
-        setBusy(false);
-        break;
       case 'done':
         setBusy(false);
         break;
       case 'error':
-        pushItem({ id: `err-${evt.ts}`, role: 'system', text: `⚠️ ${evt.message}` });
+        pushItem({ id: `err-${evt.ts}`, role: 'system', text: evt.message, level: 'error' });
         setBusy(false);
         break;
       case 'cancelled':
         setBusy(false);
-        pushItem({ id: `canc-${evt.ts}`, role: 'system', text: '⏹ 已停止' });
+        pushItem({ id: `canc-${evt.ts}`, role: 'system', text: '已停止', level: 'stopped' });
         break;
       default:
         break;
@@ -260,102 +301,131 @@ function App(): JSX.Element {
     if (!text) return;
     post({ type: 'send', text, mode, model });
     setInput('');
-    if (inputRef.current) inputRef.current.focus();
+    inputRef.current?.focus();
   }
 
-  function stop(): void {
-    post({ type: 'stop' });
-  }
+  const modelLabel = useMemo(() => model.split('/').pop() || model, [model]);
 
   return (
     <div className="app">
       <TopBar
         status={connected}
-        model={model}
+        model={modelLabel}
         sidecarInfo={sidecarInfo}
         activeSessionId={activeSessionId}
         changesCount={changes.length}
-        onToggleSessions={() => {
-          setShowSessions((v) => !v);
-          post({ type: 'session.list' });
-        }}
-        onNewSession={() => post({ type: 'newSession' })}
-        onToggleReview={() => {
-          setShowReview((v) => !v);
-          if (!showReview) post({ type: 'review.list' });
-        }}
-        onToggleModels={() => {
-          setShowModels((v) => !v);
-          if (!showModels) post({ type: 'model.list' });
-        }}
-        onToggleSettings={() => {
-          setShowSettings((v) => !v);
-          if (!showSettings) post({ type: 'settings.get' });
-        }}
+        activePanel={panel}
+        onToggleSessions={() => togglePanel('sessions', () => post({ type: 'session.list' }))}
+        onNewSession={() => post({ type: 'newSession', model })}
+        onToggleReview={() => togglePanel('review', () => post({ type: 'review.list' }))}
+        onToggleModels={() => togglePanel('models', () => post({ type: 'model.list' }))}
+        onToggleSettings={() => togglePanel('settings', () => post({ type: 'settings.get' }))}
+        onToggleCheckpoints={() => togglePanel('checkpoints', () => post({ type: 'checkpoint.list', sessionId: '' }))}
       />
 
-      {showSessions && (
+      {panel === 'sessions' && (
         <SessionsPanel
           sessions={sessions}
           activeSessionId={activeSessionId}
-          onSwitch={(id) => post({ type: 'session.switch', sessionId: id })}
-          onNew={() => post({ type: 'newSession' })}
-          onClose={() => setShowSessions(false)}
+          onSwitch={(id) => {
+            post({ type: 'session.switch', sessionId: id });
+            setPanel(null);
+          }}
+          onNew={() => {
+            post({ type: 'newSession', model });
+            setPanel(null);
+          }}
+          onClose={() => setPanel(null)}
         />
       )}
-      {showModels && (
+      {panel === 'models' && (
         <ModelsPanel
           models={models}
-          onSelect={(id) => {
-            setModel(`wps/${id}`);
-            setShowModels(false);
+          current={model}
+          onSelect={(m) => {
+            setModel(fullModelName(m));
+            setPanel(null);
+            pushItem({
+              id: `info-${Date.now()}`,
+              role: 'system',
+              text: `已切换到 ${fullModelName(m)}（下一条消息生效）`,
+            });
           }}
-          onClose={() => setShowModels(false)}
+          onClose={() => setPanel(null)}
         />
       )}
-      {showReview && (
+      {panel === 'review' && (
         <ReviewPanel
           changes={changes}
           onDiff={(path) => post({ type: 'review.diff', path })}
           onReject={(path) => post({ type: 'review.reject', path })}
-          onClose={() => setShowReview(false)}
+          onOpen={(path) => post({ type: 'review.open', path })}
+          onClose={() => setPanel(null)}
         />
       )}
-      {showCheckpoints && (
+      {panel === 'checkpoints' && (
         <CheckpointsPanel
           checkpoints={checkpoints}
           onRollback={(id) => post({ type: 'checkpoint.restore', checkpointId: id })}
-          onClose={() => setShowCheckpoints(false)}
+          onClose={() => setPanel(null)}
         />
       )}
-      {showSettings && settingsData && (
+      {panel === 'settings' && (
         <SettingsPanel
           data={settingsData}
           onToggleTab={() => {
+            if (!settingsData) return;
             const next = !settingsData.config.tabEnabled;
             post({ type: 'settings.update', patch: { tabEnabled: next } });
-            setSettingsData({ ...settingsData, config: { ...settingsData.config, tabEnabled: next } });
+            setSettingsData({
+              ...settingsData,
+              config: { ...settingsData.config, tabEnabled: next },
+            });
           }}
-          onClose={() => setShowSettings(false)}
+          onClose={() => setPanel(null)}
         />
       )}
 
-      <MessageList items={items} />
+      <MessageList items={items} busy={busy} />
+
+      {!dismissedHint && items.length === 0 && (
+        <div className="hints">
+          {[
+            '解释这个项目的架构',
+            '给选中的函数加错误处理',
+            '找出可能导致内存泄漏的地方',
+          ].map((h) => (
+            <button
+              key={h}
+              className="hint-chip"
+              onClick={() => {
+                setInput(h);
+                inputRef.current?.focus();
+                setDismissedHint(true);
+              }}
+            >
+              {h}
+            </button>
+          ))}
+        </div>
+      )}
 
       <Composer
         value={input}
         onChange={setInput}
         onSend={send}
-        onStop={stop}
+        onStop={() => post({ type: 'stop' })}
         busy={busy}
         mode={mode}
         onModeChange={setMode}
+        ready={connected === 'ready'}
+        textareaRef={inputRef}
       />
     </div>
   );
 }
 
-// VSCode webview 沙箱：acquireVsCodeApi 由宿主注入（panel.ts 的 HTML 加载后可用）
+// VSCode webview 沙箱：acquireVsCodeApi 由宿主注入
 declare function acquireVsCodeApi(): {
   postMessage(msg: unknown): void;
   getState(): unknown;

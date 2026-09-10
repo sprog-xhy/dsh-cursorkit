@@ -26,6 +26,9 @@ export const DEFAULT_DSH_HOME = join(homedir(), '.dsh-cursorkit');
 
 export type SidecarStatus = 'starting' | 'ready' | 'stopped' | 'error';
 
+/** sidecar 状态监听器。 */
+export type SidecarStatusListener = (status: SidecarStatus, info?: RuntimeInfo) => void;
+
 /** 从环境读取宿主包根目录（monorepo 开发）或发布后 node_modules。 */
 function repoRoot(): string {
   // dist/extension.js → extensions/vscode/dist → repo root
@@ -42,8 +45,15 @@ export class SidecarManager implements vscode.Disposable {
   private readonly statusBar: vscode.StatusBarItem;
   private restartTimer: NodeJS.Timeout | null = null;
 
-  /** 状态变化回调（panel/status 订阅）。 */
-  onStatusChange: ((status: SidecarStatus, info?: RuntimeInfo) => void) | null = null;
+  /** 状态变化监听（多订阅：Chat 面板 + 侧边栏视图可同时订阅）。 */
+  private readonly statusListeners = new Set<SidecarStatusListener>();
+
+  /** 订阅 sidecar 状态变化（返回注销函数）。 */
+  onStatusChange(listener: SidecarStatusListener): () => void {
+    this.statusListeners.add(listener);
+    listener(this.status, this.runtime ?? undefined);
+    return () => this.statusListeners.delete(listener);
+  }
 
   constructor(context: vscode.ExtensionContext) {
     this.output = vscode.window.createOutputChannel('DSH CursorKit Sidecar');
@@ -275,7 +285,13 @@ export class SidecarManager implements vscode.Disposable {
         this.statusBar.text = '$(error) DSH: error';
         break;
     }
-    this.onStatusChange?.(status, info);
+    for (const listener of this.statusListeners) {
+      try {
+        listener(status, info);
+      } catch {
+        /* 单个监听抛错不影响其他 */
+      }
+    }
   }
 
   /** 就绪后创建 CKP transport。 */
@@ -310,6 +326,8 @@ export class SidecarManager implements vscode.Disposable {
         /* ignore */
       }
     }
+    this.status = 'stopped';
+    this.statusListeners.clear();
     this.statusBar.dispose();
     this.output.dispose();
   }

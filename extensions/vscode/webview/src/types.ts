@@ -1,15 +1,21 @@
 /**
- * webview 共享类型（阶段三产物）。
- * 保持与 panel.ts 消息协议一致（handoff §1.3 禁止改动协议）。
+ * webview 共享类型。
+ * 保持与扩展进程 postMessage 协议一致（handoff §1.3：不改协议，只修字段语义）。
  */
 
-/** 消息渲染模型（协议不变）。 */
+/** 消息渲染模型。 */
 export interface ChatItem {
   id: string;
-  role: 'user' | 'assistant' | 'tool' | 'system';
+  role: 'user' | 'assistant' | 'tool' | 'system' | 'thinking';
   text: string;
-  toolName?: string;
+  /** tool：输出文本（折叠区）。 */
+  output?: string;
+  /** tool：run 状态。 */
   status?: string;
+  /** system：级别（error 用错误色）。 */
+  level?: 'info' | 'error' | 'stopped';
+  /** 时间戳。 */
+  ts?: number;
 }
 
 /** 审查改动（review.list）。 */
@@ -34,7 +40,9 @@ export interface CheckpointInfo {
 export interface SessionInfo {
   id: string;
   workspace: string;
-  status: string;
+  status?: string;
+  createdAt?: number;
+  updatedAt?: number;
 }
 
 /** 模型（model.list）。 */
@@ -46,12 +54,23 @@ export interface ModelInfo {
 
 /** 设置（settings.get）。 */
 export interface SettingsData {
-  rules: { global: string; project: string[] };
+  rules: { global: string; project: { name: string; globs?: string[] }[] };
   config: { permissionMode: string; tabEnabled: boolean };
 }
 
 /** 连接状态。 */
 export type ConnectionStatus = 'starting' | 'ready' | 'error' | 'stopped';
 
-/** 模式。 */
+/** 对话模式。 */
 export type ChatMode = 'ask' | 'edit' | 'agent';
+
+/** 模型全名（provider/model-id），与扩展进程约定一致。 */
+export function fullModelName(model: ModelInfo): string {
+  return model.provider ? `${model.provider}/${model.id}` : model.id;
+}
+
+/** 截断模型名用于顶栏显示。 */
+export function shortModelName(model: string): string {
+  const parts = model.split('/');
+  return parts[parts.length - 1] || model;
+}

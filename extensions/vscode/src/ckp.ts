@@ -2,6 +2,12 @@
  * CKP client 封装（V2-DECISIONS D3/D5）：
  * 复用 @dsh-cursorkit/client 的 HttpTransport + CkpClient；
  * 扩展进程是唯一持 CKP 连接的地方，webview 通过 postMessage 交互。
+ *
+ * 关键修复：
+ * - 模型选择原先在已有会话上被静默忽略（切模型不生效）→ 显式模型跟踪 + 需要时重建会话
+ * - 会话事件从 seq 0 重放导致跨会话消息串台 → 记录游标，切换时按需重放
+ * - Tab 补全/行内编辑的一次性等待会累积历史 delta → 从当前游标订阅，并串行化同名会话请求
+ * - onEvent 单回调 → 多监听（面板 + 侧边栏视图可同时订阅）
  */
 import { CkpClient, HttpTransport } from '@dsh-cursorkit/client';
 import type { Session } from '@dsh-cursorkit/protocol';
@@ -11,15 +17,21 @@ export interface CkpSessionHandle {
   client: CkpClient;
 }
 
+export type CkpEventListener = (evt: unknown) => void;
+
 export class CkpService {
   private client: CkpClient | null = null;
   private activeSessionId: string | null = null;
   private transport: HttpTransport | null = null;
-  private eventHandler: ((evt: unknown) => void) | null = null;
-  private onceHandlers: ((evt: unknown) => void)[] = [];
+  private readonly eventHandlers = new Set<CkpEventListener>();
   private disposer: (() => void) | null = null;
+  /** 当前会话创建时使用的模型（null = 未知，如切换来的会话）。 */
+  private activeSessionModel: string | null = null;
+  /** 已完成回放的事件游标（避免切换会话时重复回放）。 */
+  private replayCursor = 0;
+  /** 一次性等待的串行队列（补全/行内编辑）。 */
+  private readonly waitQueues = new Map<string, Promise<unknown>>();
 
-  /** 由 SidecarManager 就绪后注入 transport。 */
   attach(transport: HttpTransport): void {
     this.transport = transport;
     this.client = new CkpClient({ transport });
@@ -31,39 +43,47 @@ export class CkpService {
     this.client = null;
     this.transport = null;
     this.activeSessionId = null;
+    this.activeSessionModel = null;
+    this.replayCursor = 0;
+    this.eventHandlers.clear();
+    this.waitQueues.clear();
   }
 
   get ready(): boolean {
     return this.client !== null;
   }
 
-  /** 订阅事件流（转发给 webview）。 */
-  onEvent(handler: (evt: unknown) => void): void {
-    this.eventHandler = handler;
+  get sessionId(): string | null {
+    return this.activeSessionId;
   }
 
-  /** 注册一次性事件监听（Ctrl+K 收集回复用），返回注销函数。 */
-  onEventOnce(handler: (evt: unknown) => void): () => void {
-    const wrapped = (evt: unknown): void => handler(evt);
-    // 与 onEvent 共享同一 handler 链：把 wrapped 加进一个额外列表
-    this.onceHandlers.push(wrapped);
-    return () => {
-      const i = this.onceHandlers.indexOf(wrapped);
-      if (i >= 0) this.onceHandlers.splice(i, 1);
-    };
+  /** 订阅事件流（多监听；返回注销函数）。 */
+  onEvent(handler: CkpEventListener): () => void {
+    this.eventHandlers.add(handler);
+    return () => this.eventHandlers.delete(handler);
   }
 
-  /** 内部：把事件分发给常规 handler + 一次性 handlers。 */
   private dispatch(evt: unknown): void {
-    this.eventHandler?.(evt);
-    for (const h of this.onceHandlers) h(evt);
+    for (const h of this.eventHandlers) {
+      try {
+        h(evt);
+      } catch {
+        /* 单个监听抛错不影响其他监听 */
+      }
+    }
   }
 
+  /**
+   * 复用/新建会话。
+   * 模型变化时重建会话（原实现忽略模型 → 选择模型后不生效）。
+   */
   async ensureSession(workspace: string, model: string): Promise<Session> {
     if (!this.client) throw new Error('sidecar 未就绪');
     if (this.activeSessionId) {
       const detail = await this.client.sessionGet(this.activeSessionId);
-      if (detail.workspace === workspace) return detail;
+      const sameWorkspace = detail.workspace === workspace;
+      const sameModel = this.activeSessionModel === null || this.activeSessionModel === model;
+      if (sameWorkspace && sameModel) return detail;
     }
     return this.newSession(workspace, model);
   }
@@ -73,7 +93,9 @@ export class CkpService {
     if (!this.client) throw new Error('sidecar 未就绪');
     const s = await this.client.sessionCreate(workspace, { model });
     this.activeSessionId = s.id;
-    this.attachEvents(s.id);
+    this.activeSessionModel = model;
+    this.replayCursor = 0;
+    this.attachEvents(s.id, 0);
     return s;
   }
 
@@ -88,37 +110,68 @@ export class CkpService {
     return { id: s.id };
   }
 
-  /** 发送消息并等待 message.done 的完整文本（Tab 补全/行内编辑用）。 */
-  async sendAndWaitText(sessionId: string, prompt: string): Promise<string | null> {
-    if (!this.client) throw new Error('sidecar 未就绪');
-    return new Promise((resolve) => {
-      let collected = '';
-      const timeout = setTimeout(() => resolve(collected || null), 45000);
-      const off = this.transportSubscribeOnce(sessionId, (evt) => {
-        const e = evt as { type?: string; text?: string };
-        if (e?.type === 'message.delta' && typeof e.text === 'string') collected += e.text;
-        else if (e?.type === 'message.done' || e?.type === 'done' || e?.type === 'error' || e?.type === 'cancelled') {
-          clearTimeout(timeout);
-          off();
-          resolve(collected || null);
-        }
-      });
-      void this.client!.sessionSend(sessionId, prompt, { mode: 'ask' }).catch(() => {
-        clearTimeout(timeout);
-        off();
-        resolve(null);
-      });
-    });
-  }
+  /**
+   * 发送消息并等待本轮完成文本（Tab 补全/行内编辑用）。
+   *
+   * - 从当前游标订阅（不重放历史，避免把上一轮的回复拼进来）
+   * - 同一会话串行化（并发补全请求不互相抢事件）
+   */
+  async sendAndWaitText(
+    sessionId: string,
+    prompt: string,
+    mode: 'ask' | 'edit' | 'agent' = 'ask',
+  ): Promise<string | null> {
+    if (!this.client || !this.transport) throw new Error('sidecar 未就绪');
+    const client = this.client;
+    const transport = this.transport;
 
-  /** 在 transport 上挂一次性订阅（补全/行内编辑专用，不碰聊天会话流）。 */
-  private transportSubscribeOnce(sessionId: string, handler: (evt: unknown) => void): () => void {
-    if (!this.transport) return () => undefined;
-    const disposer = this.transport.subscribe(sessionId, {
-      fromSeq: 0,
-      onEvent: handler,
+    const prev = this.waitQueues.get(sessionId) ?? Promise.resolve();
+    const run = prev.then(async (): Promise<string | null> => {
+      let fromSeq = 0;
+      try {
+        const detail = await client.sessionGet(sessionId);
+        fromSeq = detail.lastSeq ?? 0;
+      } catch {
+        /* 取不到游标则从头订阅（退化） */
+      }
+      return new Promise<string | null>((resolve) => {
+        let collected = '';
+        let settled = false;
+        const done = (value: string | null): void => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          off();
+          resolve(value);
+        };
+        const timer = setTimeout(() => done(collected || null), 45000);
+        const off = transport.subscribe(sessionId, {
+          fromSeq,
+          onEvent: (evt) => {
+            const e = evt as { type?: string; text?: string };
+            if (e?.type === 'message.delta' && typeof e.text === 'string') {
+              collected += e.text;
+            } else if (
+              e?.type === 'message.done' ||
+              e?.type === 'done' ||
+              e?.type === 'error' ||
+              e?.type === 'cancelled'
+            ) {
+              done(collected || null);
+            }
+          },
+        });
+        void client
+          .sessionSend(sessionId, prompt, { mode })
+          .catch(() => done(null));
+      });
     });
-    return disposer;
+
+    this.waitQueues.set(
+      sessionId,
+      run.catch(() => null),
+    );
+    return run;
   }
 
   async sendMessage(
@@ -149,8 +202,17 @@ export class CkpService {
 
   async switchSession(id: string): Promise<void> {
     if (!this.client) return;
+    let fromSeq = 0;
+    try {
+      const detail = await this.client.sessionGet(id);
+      fromSeq = detail.lastSeq ?? 0;
+    } catch {
+      /* 退化：从头回放 */
+    }
     this.activeSessionId = id;
-    this.attachEvents(id);
+    // 切换来的会话模型未知（协议未返回 model）→ 不做模型比较，避免误重建
+    this.activeSessionModel = null;
+    this.attachEvents(id, fromSeq);
   }
 
   async getSessionDetail(id: string) {
@@ -168,15 +230,20 @@ export class CkpService {
     return this.client.checkpointRestore(checkpointId);
   }
 
-  get sessionId(): string | null {
-    return this.activeSessionId;
+  async diffGet(sessionId?: string) {
+    if (!this.client) throw new Error('sidecar 未就绪');
+    return this.client.diffGet(sessionId ? { sessionId } : {});
   }
 
-  private attachEvents(sessionId: string): void {
+  /**
+   * 订阅会话事件。
+   * @param fromSeq 0 = 回放完整历史（切换会话时用于重建消息流）
+   */
+  private attachEvents(sessionId: string, fromSeq: number): void {
     this.disposer?.();
     if (!this.client || !this.transport) return;
     this.disposer = this.transport.subscribe(sessionId, {
-      fromSeq: 0,
+      fromSeq,
       onEvent: (evt) => this.dispatch(evt),
     });
   }

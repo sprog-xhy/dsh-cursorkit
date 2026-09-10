@@ -1,22 +1,35 @@
 /**
  * IDE 适配层（V2-DECISIONS D5/D18/D27）：
- * 把 VSCode 的编辑器状态翻译为 agent 上下文：
- * - 当前选中文本 / 打开编辑器（自动注入）
- * - @file / @folder 提及解析为路径
- * - 当前 workspace（multi-root：active editor 所在 root）
+ * 把 VSCode 的编辑器状态翻译为 agent 上下文。
+ *
+ * 关键修复：选中文本原先只弹了一句"已自动附加选中文本"提示，
+ * 但内容从未拼进消息（agent 实际看不到）——现在由 formatSelectionBlock 真正注入。
  */
 import * as vscode from 'vscode';
+import { relative } from 'node:path';
+
+/** 编辑器选中信息。 */
+export interface SelectionInfo {
+  text: string;
+  /** workspace 相对路径（跨 root 时退回绝对路径）。 */
+  file: string;
+  /** 1-based 起始行。 */
+  startLine: number;
+  /** 1-based 结束行。 */
+  endLine: number;
+  languageId: string;
+}
 
 export interface InjectedContext {
-  /** 注入的文件（绝对路径或 workspace 相对路径）。 */
+  /** @file/@folder 提及解析出的路径。 */
   files: string[];
-  /** 当前选中文本。 */
-  selection?: string;
-  /** 用户输入的 @提及（原始形式）。 */
+  /** 当前选中（自动上下文）。 */
+  selection?: SelectionInfo;
+  /** 传给 sidecar 的 mentions（`file:<path>` 形式）。 */
   mentions: string[];
 }
 
-/** 当前 workspace root（V2-DECISIONS D27）。 */
+/** 当前 workspace root（multi-root：active editor 所在 root，D27）。 */
 export function currentWorkspace(): string {
   const folders = vscode.workspace.workspaceFolders;
   if (!folders || folders.length === 0) return '';
@@ -28,43 +41,50 @@ export function currentWorkspace(): string {
   return folders[0].uri.fsPath;
 }
 
-/** 解析用户输入中的 @file / @folder 提及 → 文件路径列表。 */
-export function parseMentions(text: string, workspace: string): string[] {
+/** 解析用户输入中的 @file / @folder 提及 → 路径列表。 */
+export function parseMentions(text: string): string[] {
   const files: string[] = [];
   const re = /@(?:file|folder):([^\s\]]+)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     const p = m[1].replace(/[",)]+$/, '');
-    files.push(p);
+    if (p) files.push(p);
   }
   return files;
 }
 
-/** 当前选中文本（若有编辑器选中）。 */
-export function currentSelection(): string | undefined {
+/** 当前选中（含文件与行号）。 */
+export function currentSelection(workspace: string): SelectionInfo | undefined {
   const ed = vscode.window.activeTextEditor;
   if (!ed) return undefined;
   const sel = ed.selection;
   if (sel.isEmpty) return undefined;
-  return ed.document.getText(sel);
+  const text = ed.document.getText(sel);
+  if (!text.trim()) return undefined;
+  const abs = ed.document.uri.fsPath;
+  const rel = workspace ? relative(workspace, abs) : abs;
+  return {
+    text,
+    file: rel && !rel.startsWith('..') ? rel : abs,
+    startLine: sel.start.line + 1,
+    endLine: sel.end.line + 1,
+    languageId: ed.document.languageId,
+  };
 }
 
-/** 构造注入上下文（自动注入当前选中 + @file 提及）。 */
+/** 构造注入上下文（@file 提及 + 当前选中）。 */
 export function buildInjectedContext(userText: string, workspace: string): InjectedContext {
-  const files = parseMentions(userText, workspace);
-  const selection = currentSelection();
+  const files = parseMentions(userText);
+  const selection = currentSelection(workspace);
   return { files, selection, mentions: files.map((f) => `file:${f}`) };
 }
 
-/** 打开 diff 视图（agent 改动的文件 vs 原始）。 */
-export async function showDiff(originalPath: string, modifiedPath: string, title: string): Promise<void> {
-  const original = vscode.Uri.file(originalPath);
-  const modified = vscode.Uri.file(modifiedPath);
-  await vscode.commands.executeCommand(
-    'vscode.diff',
-    original,
-    modified,
-    `DSH: ${title}`,
+/** 把选中内容格式化为可拼进消息的代码块（真正注入 agent）。 */
+export function formatSelectionBlock(sel: SelectionInfo): string {
+  const lines = sel.startLine === sel.endLine ? `第 ${sel.startLine} 行` : `第 ${sel.startLine}-${sel.endLine} 行`;
+  return (
+    `\n\n以下是用户当前在编辑器里选中的代码（${sel.file} ${lines}），` +
+    `与本次请求直接相关：\n\`\`\`${sel.languageId}\n${sel.text}\n\`\`\``
   );
 }
 

@@ -1,51 +1,84 @@
 /**
- * 消息项（阶段三产物）：
- * - user：右对齐低饱和卡片
- * - assistant：左对齐无气泡正文（markdown 渲染）
- * - tool：ToolCallCard 行内卡片
- * - system：居中弱化
+ * 消息项：
+ * - user：右对齐卡片
+ * - assistant：左对齐正文（markdown），悬停可复制
+ * - tool：工具卡片
+ * - thinking：折叠折叠块
+ * - system：左对齐弱化（错误红色 / 停止红色）
  */
-import React from 'react';
+import React, { useState } from 'react';
 import type { ChatItem } from '../types.ts';
 import { renderMd } from '../markdown.ts';
 import { ThinkingBlock } from './ThinkingBlock.tsx';
 import { ToolCallCard } from './ToolCallCard.tsx';
 
+function timeOf(ts?: number): string {
+  if (!ts) return '';
+  try {
+    return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+}
+
 export function MessageItem({ item }: { item: ChatItem }): JSX.Element {
+  const [copied, setCopied] = useState(false);
+
   if (item.role === 'tool') {
     return (
       <div className="msg msg-tool">
-        <ToolCallCard name={item.text} status={item.status} output={item.toolName} />
+        <ToolCallCard name={item.text} status={item.status} output={item.output} />
       </div>
     );
   }
+
+  if (item.role === 'thinking') {
+    return (
+      <div className="msg msg-system">
+        <ThinkingBlock text={item.text} />
+      </div>
+    );
+  }
+
   if (item.role === 'assistant') {
+    const copy = (): void => {
+      void navigator.clipboard?.writeText(item.text).then(
+        () => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1200);
+        },
+        () => undefined,
+      );
+    };
     return (
       <div className="msg msg-assistant">
         <div className="msg-text" dangerouslySetInnerHTML={{ __html: renderMd(item.text) }} />
+        <button className="msg-copy" onClick={copy} title="复制回复">
+          {copied ? '已复制' : '复制'}
+        </button>
       </div>
     );
   }
+
   if (item.role === 'system') {
-    // thinking 前缀 → ThinkingBlock；其余居中弱化
-    if (item.text.startsWith('🤔') || item.text.startsWith('思考')) {
-      const body = item.text.replace(/^🤔\s*/, '').replace(/^思考:\s*/, '');
-      return (
-        <div className="msg msg-system">
-          <ThinkingBlock text={body} />
-        </div>
-      );
-    }
+    const cls =
+      item.level === 'error' ? 'error' : item.level === 'stopped' ? 'stopped' : '';
     return (
       <div className="msg msg-system">
-        <span className={`msg-system-text ${item.text.includes('已停止') ? 'stopped' : ''}`}>{item.text}</span>
+        <span className={`msg-system-text ${cls}`}>
+          {timeOf(item.ts) && <span className="msg-time">{timeOf(item.ts)}</span>}
+          {item.text}
+        </span>
       </div>
     );
   }
-  // user
+
   return (
     <div className="msg msg-user">
-      <div className="msg-user-bubble">{item.text}</div>
+      <div className="msg-user-bubble">
+        {item.text}
+        {timeOf(item.ts) && <span className="msg-time">{timeOf(item.ts)}</span>}
+      </div>
     </div>
   );
 }
