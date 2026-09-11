@@ -8,6 +8,7 @@
 # 用法：
 #   scripts/open-vscode.sh [文件夹]        # 关掉所有实例 → 清空窗口恢复状态 → 只开一个窗口
 #   scripts/open-vscode.sh [文件夹] --keep # 同上，但保留其它项目的窗口（只清空窗口）
+#   scripts/open-vscode.sh [文件夹] --debug # 额外开启 CDP 调试端口 9222（供 agent-debug 使用）
 set -uo pipefail
 
 FOLDER="${1:-$(pwd)}"
@@ -55,6 +56,11 @@ print(f"[open-vscode] 恢复列表已清理：{len(folders)} 个文件夹，0 �
 PY
 
 # 3) 只开一个窗口（不用 -n，避免叠加）
-setsid nohup /usr/share/code/code "$FOLDER" > /tmp/vscode-open.log 2>&1 < /dev/null &
+ARGS=("$FOLDER")
+if [ "${KEEP_OTHERS}" = "--debug" ] || [ "${3:-}" = "--debug" ]; then
+  ARGS+=(--remote-debugging-port=9333)
+  echo "[open-vscode] CDP 调试端口：9333（仅本机）"
+fi
+setsid nohup /usr/share/code/code "${ARGS[@]}" > /tmp/vscode-open.log 2>&1 < /dev/null &
 sleep 3
 echo "[open-vscode] 已启动 1 个窗口（其它窗口请手动打开）"

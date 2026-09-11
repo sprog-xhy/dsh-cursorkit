@@ -19,6 +19,7 @@
  */
 
 import { inferFileChange } from './file-change.ts';
+import { consumeEchoedUserMessage } from './user-echo.ts';
 
 /** Raw dsh session event (structural subset we care about). */
 export interface RawSessionEvent {
@@ -99,6 +100,8 @@ export function translateRawEvent(
       const source = (message?.source ?? d.source) as { kind?: string } | undefined;
       const kind = source?.kind;
       if (kind !== undefined && kind !== 'user') return null;
+      // 已由 session.send 的乐观事件发出过 → 丢弃（否则前端渲染两条）
+      if (consumeEchoedUserMessage(message?.id)) return null;
       // 注意：`message` 恒为真（d.message ?? d），所以原先的 `: String(d.text ?? '')`
       // 分支是死代码；这里改为「内容块优先，空则回退到裸 text」。
       const fromContent = message?.content ? contentToText(message.content) : '';
@@ -182,8 +185,8 @@ export function translateRawEvent(
     }
 
     case 'turn/start':
-      // Opening turn — a no-op marker for CKP.
-      return { sessionId, type: 'message.delta', text: '' };
+      // 回合开始只是标记：**不要**产出空 delta（会在前端生成一个空的助手气泡）
+      return null;
 
     /**
      * 回合结束。

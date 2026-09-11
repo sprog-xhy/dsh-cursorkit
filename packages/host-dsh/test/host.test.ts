@@ -93,7 +93,8 @@ describe('session-bridge translation', () => {
       args: { command: 'ls' },
     });
 
-    expect(translateRawEvent('s1', { type: 'turn/start', data: { turn: 1 } })).toMatchObject({ type: 'message.delta' });
+    // turn/start 现在不产生事件（此前产出空 delta → 前端出现空白助手气泡）
+    expect(translateRawEvent('s1', { type: 'turn/start', data: { turn: 1 } })).toBeNull();
     // turn/end 现在会映射（原先丢弃 → 前端收不到"结束/取消"，busy 永远为 true）
     expect(translateRawEvent('s1', { type: 'turn/end', data: { turn: 1 } })).toMatchObject({
       type: 'done',

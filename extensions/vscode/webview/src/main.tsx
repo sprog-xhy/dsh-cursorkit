@@ -283,13 +283,21 @@ function App(): JSX.Element {
 
   function handleEvent(evt: CkpEvent): void {
     switch (evt.type) {
-      case 'message.user':
+      case 'message.user': {
         // 用户消息自身无轮次标记（dsh 的 user/message 不带 turn）→ 独立成组
         lastUserRef.current = evt.text;
-        pushItem({ id: `u-${evt.ts}`, role: 'user', text: evt.text });
+        const mid = (evt as unknown as { messageId?: string }).messageId;
+        setItems((prev) => {
+          // 防御：同一条消息（乐观事件 + 日志事件）只渲染一次
+          if (mid && prev.some((it) => it.messageId === mid)) return prev;
+          return [...prev, { id: `u-${mid ?? evt.ts}`, role: 'user', text: evt.text, messageId: mid, ts: evt.ts }];
+        });
         setBusy(true);
         break;
+      }
       case 'message.delta': {
+        // 空增量直接忽略：否则会在前端留下一个空白助手气泡
+        if (!evt.text) break;
         // 按 turn/step 归组：同一轮的文本持续追加到同一条，跨轮不会混
         const id = `a-${evt.sessionId}-${evt.turn ?? 'x'}-${evt.step ?? 'x'}`;
         setItems((prev) => {

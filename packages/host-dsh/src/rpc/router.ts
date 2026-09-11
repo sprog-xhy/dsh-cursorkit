@@ -19,6 +19,7 @@ import type { CapabilityReport } from '../capability.ts';
 import type { EventBus } from './sse.ts';
 import type { SessionStoreView, AgentView, AgentRegistryView } from '../compat/sessions.ts';
 import { translateRawEvent, type RawSessionEvent } from '../bridge/session-bridge.ts';
+import { noteEchoedUserMessage } from '../bridge/user-echo.ts';
 import { computeFileChanges } from '../diff/git-diff.ts';
 import { listCheckpoints, restoreCheckpoint } from '../checkpoint/git-checkpoint.ts';
 import { listWorktrees, createWorktree, removeWorktree } from '../worktree/git-worktree.ts';
@@ -345,10 +346,14 @@ export class Router {
         throw new CkpError('CAPABILITY_MISSING', `no live agent for session ${params.id}`, ['sessions.send']);
       }
       // Broadcast the user message so all subscribers see it in the stream.
+      // 注意：dsh 随后也会把同一条消息记进日志并由 bridge 翻译一次 →
+      // 必须登记 id，让 bridge 丢弃重复的 user/message（否则 UI 里出现两条）。
+      noteEchoedUserMessage(message.id);
       svc.bus.emit({
         sessionId: params.id,
         type: 'message.user',
         text,
+        messageId: message.id,
         attachments: params.attachments,
         mentions: params.mentions,
       } as never);

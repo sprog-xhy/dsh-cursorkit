@@ -14,6 +14,8 @@ export interface ChatItem {
   status?: string;
   /** system：级别（error 用错误色）。 */
   level?: 'info' | 'error' | 'stopped';
+  /** 用户消息：host 侧消息 id（用于去重，避免乐观事件与日志事件渲染两次）。 */
+  messageId?: string;
   /** 助手消息：对应可重发的用户输入（重新生成用）。 */
   retryText?: string;
   /** change：处理状态（待审查 / 已保留 / 已撤销）。 */
