@@ -29,7 +29,32 @@ import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-const PORT = Number(process.env.CK_CDP_PORT ?? 9333);
+/**
+ * 解析 CDP 端口：
+ * 1) CK_CDP_PORT 显式指定
+ * 2) 读 `~/.config/Code/DevToolsActivePort`（VSCode 用 --remote-debugging-port=0 时写这里）
+ * 3) 退路：9222（默认端口）
+ * 说明：本机 9222/9333 常年被别的进程占用，硬编码端口会导致 CDP 起不来。
+ */
+function resolvePort() {
+  if (process.env.CK_CDP_PORT) return Number(process.env.CK_CDP_PORT);
+  const candidates = [
+    join(homedir(), '.config', 'Code', 'DevToolsActivePort'),
+    join(homedir(), '.vscode', 'DevToolsActivePort'),
+  ];
+  for (const f of candidates) {
+    try {
+      if (!existsSync(f)) continue;
+      const first = readFileSync(f, 'utf8').split('\n')[0]?.trim();
+      if (first && /^\d+$/.test(first)) return Number(first);
+    } catch {
+      /* 继续尝试 */
+    }
+  }
+  return 9222;
+}
+
+const PORT = resolvePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 
 const argv = process.argv.slice(2);
@@ -156,9 +181,8 @@ async function pickChatWebview(targets) {
  * 我们的 HTML 在内层 iframe 里（同名 origin → 可用 contentDocument 直接访问）。
  * 不穿透就会得到空 DOM（曾误判成"白屏"）。
  */
-function wrap(body) {
-  const isStatement = /(^|[\s;{(])return[\s;(]/.test(body);
-  const inner = isStatement ? body : `return (${body});`;
+function wrap(body, asStatement = false) {
+  const inner = asStatement ? body : `return (${body});`;
   return `(() => {
     const __outerDoc = globalThis.document;
     const __outerWin = globalThis.window;
@@ -174,18 +198,29 @@ function wrap(body) {
 
 /** 在 webview（内层文档）里求值（返回 JS 值）。 */
 async function evaluate(cdp, expression) {
-  const r = await cdp.send('Runtime.evaluate', {
-    expression: wrap(expression),
-    returnByValue: true,
-    awaitPromise: true,
-    userGesture: true,
-  });
-  if (r.exceptionDetails) {
-    throw new Error(
-      `求值异常: ${r.exceptionDetails.exception?.description ?? r.exceptionDetails.text}`,
-    );
+  // 先按「表达式」求值；若是语句体（含 return/声明）会报语法错 → 再按语句体求值。
+  // 比正则猜测更可靠（曾把用户箭头函数里的 return 误判为语句体）。
+  const attempt = async (asStatement) => {
+    const r = await cdp.send('Runtime.evaluate', {
+      expression: wrap(expression, asStatement),
+      returnByValue: true,
+      awaitPromise: true,
+      userGesture: true,
+    });
+    if (r.exceptionDetails) {
+      const msg = r.exceptionDetails.exception?.description ?? r.exceptionDetails.text ?? '';
+      const err = new Error(msg);
+      err.syntax = /SyntaxError|Unexpected token|Invalid or unexpected/.test(msg);
+      throw err;
+    }
+    return r.result?.value;
+  };
+  try {
+    return await attempt(false);
+  } catch (err) {
+    if (err.syntax) return await attempt(true);
+    throw err;
   }
-  return r.result?.value;
 }
 
 /** Chat 面板在窗口内的位置（用于只截面板区域）。 */

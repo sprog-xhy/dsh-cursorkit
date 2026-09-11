@@ -109,6 +109,20 @@ node scripts/verify-cancel.mjs    # 停止链路：长任务 → session.cancel 
 node scripts/check-css-classes.mjs # CSS 类名交叉检查
 ```
 
+### 让 agent 自己调试 UI（重要）
+
+见 [`docs/AGENT-DEBUG-TOOL.md`](docs/AGENT-DEBUG-TOOL.md)。速查：
+
+```bash
+bash scripts/open-vscode.sh <folder> --debug     # 带 CDP 调试端口启动（端口自动分配）
+node scripts/agent-debug.mjs shot --chat -o /tmp/a.png  # 截 Chat 面板（agent 直接看图）
+node scripts/agent-debug.mjs digest              # UI 真实状态（状态/模型/消息数/待保留…）
+node scripts/agent-debug.mjs click ".btn-stop"   # 等价真人点击
+node scripts/agent-debug.mjs type "你好" --enter   # 输入并发送
+node scripts/agent-debug.mjs errors --seconds=8  # 采集前端错误
+node scripts/agent-debug.mjs log                 # 扩展活动日志
+```
+
 ### 重启 VSCode 的正确姿势（避免"一堆空白窗口"）
 
 安装新 vsix 后**优先让窗口自己重载**：`Ctrl+Shift+P` → `Developer: Reload Window`（零窗口副作用）。

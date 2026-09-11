@@ -58,8 +58,8 @@ PY
 # 3) 只开一个窗口（不用 -n，避免叠加）
 ARGS=("$FOLDER")
 if [ "${KEEP_OTHERS}" = "--debug" ] || [ "${3:-}" = "--debug" ]; then
-  ARGS+=(--remote-debugging-port=9333)
-  echo "[open-vscode] CDP 调试端口：9333（仅本机）"
+  ARGS+=(--remote-debugging-port=0)
+  echo "[open-vscode] CDP 调试端口：由系统分配（读取 ~/.config/Code/DevToolsActivePort）"
 fi
 setsid nohup /usr/share/code/code "${ARGS[@]}" > /tmp/vscode-open.log 2>&1 < /dev/null &
 sleep 3
