@@ -104,12 +104,29 @@ node scripts/verify-m0.mjs        # 全链路: spawn→runtime→session→send�
 node scripts/verify-m3.mjs        # model.list 真实 settings + 会话
 node scripts/verify-bugfixes.mjs  # 依赖同步/会话索引/重启后历史可用/diff 来源 等 9 项
 node scripts/verify-history.mjs   # 历史会话恢复（建会话→发消息→重启 sidecar→回放历史）
+node scripts/verify-file-change.mjs # 改动链路：agent 真改文件 → file.changed/checkpoint
+node scripts/verify-cancel.mjs    # 停止链路：长任务 → session.cancel → 收到 cancelled
 node scripts/check-css-classes.mjs # CSS 类名交叉检查
 ```
 
+### 重启 VSCode 的正确姿势（避免"一堆空白窗口"）
+
+安装新 vsix 后**优先让窗口自己重载**：`Ctrl+Shift+P` → `Developer: Reload Window`（零窗口副作用）。
+
+确实需要重启时用脚本，不要用 `code -n`：
+
+```bash
+bash scripts/open-vscode.sh /path/to/workspace        # 只留这一个窗口
+bash scripts/open-vscode.sh /path/to/workspace --keep # 保留其它项目的窗口
+```
+
+它会：关闭**所有** VSCode 实例（不只第一个）→ 清掉待恢复的**空窗口** →
+只开一个窗口。注意不要用 `xdg-open vscode://…` 触发扩展 URI：
+那会**另起一个 VSCode 实例**，是空白窗口的主要来源（用 `code --open-url …`）。
+
 ## 测试
 
-**231 项全绿**：protocol 11 / client 14 / host-dsh 82 / fixtures 6 / 扩展 118
+**317 项全绿**：protocol 11 / client 14 / host-dsh 128 / fixtures 6 / 扩展 158
 （含真实 sidecar 冷启动集成测试与组件渲染测试；`CK_SKIP_INTEGRATION=1` 可跳过需要 dsh 的用例）。
 
 ## 安全
