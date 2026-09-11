@@ -191,3 +191,37 @@ describe('translateRawEvent: session/title 与持久化分片行', () => {
     expect(evt).toMatchObject({ type: 'thinking.delta', text: '想一下' });
   });
 });
+
+describe('工具事件终态（修复"工具卡永远运行中"）', () => {
+  it('tool/result 成功 → tool.output 带 callId（前端据此关联卡片）', () => {
+    const evt = translateRawEvent(S, {
+      type: 'tool/result',
+      data: {
+        turn: 1,
+        step: 2,
+        message: { content: [{ toolCallId: 'call_abc', output: 'hello' }] },
+      },
+    }) as { type?: string; callId?: string; output?: string } | null;
+    expect(evt?.type).toBe('tool.output');
+    expect(evt?.callId).toBe('call_abc');
+    expect(evt?.output).toBe('hello');
+  });
+
+  it('tool/call 携带 callId（前后端关联的键）', () => {
+    const evt = translateRawEvent(S, {
+      type: 'tool/call',
+      data: { turn: 1, step: 1, callId: 'call_abc', name: 'bash', arguments: '{"command":"ls"}' },
+    }) as { call?: { callId?: string; name?: string } } | null;
+    expect(evt?.call?.callId).toBe('call_abc');
+    expect(evt?.call?.name).toBe('bash');
+  });
+
+  it('tool/result 失败 → tool.done status=error', () => {
+    const evt = translateRawEvent(S, {
+      type: 'tool/result',
+      data: { message: { content: [{ toolCallId: 'call_x', isError: true, output: 'boom' }] } },
+    }) as { type?: string; status?: string } | null;
+    expect(evt?.type).toBe('tool.done');
+    expect(evt?.status).toBe('error');
+  });
+});

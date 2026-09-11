@@ -376,6 +376,8 @@ function App(): JSX.Element {
         updateItem(`c-${evt.callId}`, (it) => ({
           ...it,
           output: `${it.output ?? ''}${it.output ? '\n' : ''}${evt.output}`,
+          // 防御：tool.output 是终态输出（若 host 未补发 tool.done，卡片也不该卡在"运行中"）
+          status: it.status === 'failed' ? 'failed' : 'done',
         }));
         break;
       case 'file.changed': {

@@ -330,6 +330,28 @@ export function apply(ctx: HostCtx, config: HostConfig = {}): void {
           }
           const translated = translateRawEvent(session.id, raw);
           if (translated) bus.emit(translated as never);
+          // tool/result 成功时 bridge 只产出 tool.output；再补一条 tool.done，
+          // 否则前端工具卡永远停在"运行中"（实测 bug）。
+          if (
+            translated &&
+            (translated as { type?: string }).type === 'tool.output' &&
+            (raw as RawSessionEvent).type === 'tool/result'
+          ) {
+            const ev = translated as unknown as {
+              callId?: string;
+              sessionId: string;
+              turn?: number;
+              step?: number;
+            };
+            bus.emit({
+              sessionId: session.id,
+              type: 'tool.done',
+              callId: ev.callId,
+              status: 'success',
+              turn: ev.turn,
+              step: ev.step,
+            } as never);
+          }
           // Track tool/call for file.changed inference on the matching result.
           if ((raw as RawSessionEvent).type?.startsWith('tool/call')) {
             bridgeTracker.noteCall(raw as RawSessionEvent);
