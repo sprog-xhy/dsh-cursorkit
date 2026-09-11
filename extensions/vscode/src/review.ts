@@ -72,6 +72,26 @@ export class ChangeTracker {
     this.changes.delete(path);
   }
 
+  /**
+   * 保留（Keep）：接受 agent 的改动 —— 文件保持现状，仅从「待审查」列表移除。
+   *
+   * 与「撤销（Undo）」配对，对齐 Cursor 的 Keep/Undo 语义：
+   * agent 写文件时改动已落盘，Keep 表示"我确认接受"，于是不再属于待处理项。
+   * @returns 是否确实有待处理项被保留
+   */
+  accept(path: string): boolean {
+    if (!this.changes.has(path)) return false;
+    this.changes.delete(path);
+    return true;
+  }
+
+  /** 全部保留；返回被保留的路径。 */
+  acceptAll(): string[] {
+    const paths = [...this.changes.keys()];
+    this.changes.clear();
+    return paths;
+  }
+
   clear(): void {
     this.changes.clear();
   }

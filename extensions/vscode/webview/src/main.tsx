@@ -74,6 +74,14 @@ interface CheckpointListMsg {
   sessionId: string;
   checkpoints: CheckpointInfo[];
 }
+interface ReviewAcceptedMsg {
+  type: 'review.accepted';
+  path: string;
+}
+interface ReviewRevertedMsg {
+  type: 'review.reverted';
+  path: string;
+}
 interface FilesResultMsg {
   type: 'files.result';
   query: string;
@@ -99,6 +107,8 @@ interface SettingsGetMsg {
   config: SettingsData['config'];
 }
 type Inbound =
+  | ReviewAcceptedMsg
+  | ReviewRevertedMsg
   | FilesResultMsg
   | SidecarStatusMsg
   | InitMsg
@@ -185,6 +195,24 @@ function App(): JSX.Element {
         case 'checkpoint.list':
           setCheckpoints(msg.checkpoints);
           break;
+        case 'review.accepted': {
+          const p = (msg as { path?: string }).path ?? '';
+          setItems((prev) =>
+            prev.map((it) =>
+              it.role === 'change' && it.path === p ? { ...it, changeState: 'accepted' } : it,
+            ),
+          );
+          break;
+        }
+        case 'review.reverted': {
+          const p = (msg as { path?: string }).path ?? '';
+          setItems((prev) =>
+            prev.map((it) =>
+              it.role === 'change' && it.path === p ? { ...it, changeState: 'reverted' } : it,
+            ),
+          );
+          break;
+        }
         case 'files.result': {
           setFileResults(Array.isArray((msg as { files?: string[] }).files) ? ((msg as { files?: string[] }).files as string[]) : []);
           break;
@@ -353,6 +381,7 @@ function App(): JSX.Element {
             additions: c.additions ?? 0,
             deletions: c.deletions ?? 0,
             status: c.status,
+            changeState: 'pending',
             ts: evt.ts,
           });
         }
@@ -487,6 +516,7 @@ function App(): JSX.Element {
           onDiff={(path) => post({ type: 'review.diff', path })}
           onReject={(path) => post({ type: 'review.reject', path })}
           onOpen={(path) => post({ type: 'review.open', path })}
+        onKeep={(path) => post({ type: 'review.accept', path })}
           onClose={() => setPanel(null)}
         />
       )}
@@ -519,6 +549,7 @@ function App(): JSX.Element {
         onDiff={(path) => post({ type: 'review.diff', path })}
         onRevert={(path) => post({ type: 'review.reject', path })}
         onOpen={(path) => post({ type: 'review.open', path })}
+        onKeep={(path) => post({ type: 'review.accept', path })}
         onRetry={(text) => {
           lastUserRef.current = text;
           post({ type: 'send', text, mode, model });

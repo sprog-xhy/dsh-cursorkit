@@ -16,6 +16,8 @@ export interface ChatItem {
   level?: 'info' | 'error' | 'stopped';
   /** 助手消息：对应可重发的用户输入（重新生成用）。 */
   retryText?: string;
+  /** change：处理状态（待审查 / 已保留 / 已撤销）。 */
+  changeState?: 'pending' | 'accepted' | 'reverted';
   /** change：被修改的文件路径与统计。 */
   path?: string;
   additions?: number;

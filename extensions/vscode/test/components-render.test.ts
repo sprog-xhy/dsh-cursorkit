@@ -11,11 +11,13 @@ import { TopBar } from '../webview/src/components/TopBar.tsx';
 import { MessageList } from '../webview/src/components/MessageList.tsx';
 import { MessageItem } from '../webview/src/components/MessageItem.tsx';
 import { Composer } from '../webview/src/components/Composer.tsx';
+import { ReviewPanel } from '../webview/src/components/panels.tsx';
 import { ThinkingBlock } from '../webview/src/components/ThinkingBlock.tsx';
 import { ToolCallCard } from '../webview/src/components/ToolCallCard.tsx';
 import { Panel } from '../webview/src/components/Panel.tsx';
 import { ChangeCard } from '../webview/src/components/ChangeCard.tsx';
 import { Composer } from '../webview/src/components/Composer.tsx';
+import { ReviewPanel } from '../webview/src/components/panels.tsx';
 import {
   SessionsPanel,
   ModelsPanel,
@@ -346,7 +348,7 @@ describe('内联改动卡片与会话标题（Cursor 化）', () => {
     expect(html).toContain('title="src/components/App.tsx"'); // 全路径放 tooltip
     expect(html).toContain('+12');
     expect(html).toContain('-3');
-    expect(html).toContain('查看差异');
+    expect(html).toContain('差异');
     expect(html).toContain('撤销');
   });
 
@@ -506,5 +508,66 @@ describe('Cursor 对齐：消息操作 / 排队 / 会话管理', () => {
     expect(html).toContain('panel-search');
     expect(html).toContain('改名');
     expect(html).toContain('删除');
+  });
+});
+
+describe('Keep/Undo（保留 / 撤销）', () => {
+  const base = { path: 'src/a.ts', additions: 3, deletions: 1, onDiff: noop, onRevert: noop, onOpen: noop };
+
+  it('待审查时同时显示「保留」与「撤销」+「差异」', () => {
+    const html = renderToStaticMarkup(h(ChangeCard, { ...base, onKeep: noop, changeState: 'pending' }));
+    expect(html).toContain('保留');
+    expect(html).toContain('撤销');
+    expect(html).toContain('差异');
+  });
+
+  it('已保留 → 按钮消失并显示「已保留」', () => {
+    const html = renderToStaticMarkup(h(ChangeCard, { ...base, onKeep: noop, changeState: 'accepted' }));
+    expect(html).toContain('已保留');
+    expect(html).not.toContain('>保留<');
+    expect(html).not.toContain('>撤销<');
+  });
+
+  it('已撤销 → 显示「已撤销」', () => {
+    const html = renderToStaticMarkup(h(ChangeCard, { ...base, onKeep: noop, changeState: 'reverted' }));
+    expect(html).toContain('已撤销');
+  });
+
+  it('改动面板：每个文件有 保留/撤销/diff，多文件时提供 全部保留/全部撤销', () => {
+    const html = renderToStaticMarkup(
+      h(ReviewPanel, {
+        changes: [
+          { path: 'a.ts', additions: 1, deletions: 0, status: 'pending', patch: '' },
+          { path: 'b.ts', additions: 2, deletions: 1, status: 'pending', patch: '' },
+        ],
+        onDiff: noop,
+        onReject: noop,
+        onOpen: noop,
+        onKeep: noop,
+        onKeepAll: noop,
+        onRejectAll: noop,
+        onClose: noop,
+      }),
+    );
+    expect(html).toContain('全部保留');
+    expect(html).toContain('全部撤销');
+    expect((html.match(/>保留</g) ?? []).length).toBe(2); // 两行各一个「保留」
+  });
+
+  it('单文件时不显示「全部保留」（避免冗余）', () => {
+    const html = renderToStaticMarkup(
+      h(ReviewPanel, {
+        changes: [{ path: 'a.ts', additions: 1, deletions: 0, status: 'pending', patch: '' }],
+        onDiff: noop,
+        onReject: noop,
+        onOpen: noop,
+        onKeep: noop,
+        onKeepAll: noop,
+        onRejectAll: noop,
+        onClose: noop,
+      }),
+    );
+    expect(html).not.toContain('全部保留');
+    expect(html).toContain('>保留<');
   });
 });

@@ -158,3 +158,102 @@ describe('ChatController 会话切换顺序', () => {
     sidecar.dispose();
   });
 });
+
+describe('Keep/Undo：控制器行为', () => {
+  it('file.changed → 待审查列表；review.accept → 广播已保留并移出列表', async () => {
+    const t = new FakeTransport();
+    const ckp = new CkpService();
+    ckp.attach(t as never);
+    const sidecar = new SidecarManager(fakeContext());
+    const docs = new VirtualDocProvider();
+    const controller = new ChatController(ckp, sidecar, docs, fakeContext());
+
+    const posted: { type?: string; path?: string; changes?: unknown[] }[] = [];
+    const host = {
+      hostId: 'keep-test',
+      kind: 'panel' as const,
+      context: fakeContext(),
+      webview: { postMessage: async () => true } as never,
+      post: (msg: unknown) => posted.push(msg as { type?: string }),
+    };
+    controller.attach(host);
+    await ckp.switchSession('s1'); // 订阅事件流（否则 push 无人接收）
+    posted.length = 0;
+
+    // host 侧产生一次文件改动
+    t.push({
+      type: 'file.changed',
+      sessionId: 's1',
+      change: { path: 'src/a.ts', patch: '', additions: 3, deletions: 1, status: 'pending' },
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    const listMsg = posted.find((m) => m.type === 'review.list');
+    expect((listMsg?.changes as unknown[])?.length).toBe(1);
+
+    // 点「保留」
+    posted.length = 0;
+    await controller.handleMessage({ type: 'review.accept', path: 'src/a.ts' }, host);
+    expect(posted.some((m) => m.type === 'review.accepted' && m.path === 'src/a.ts')).toBe(true);
+    const after = posted.find((m) => m.type === 'review.list');
+    expect((after?.changes as unknown[])?.length).toBe(0); // 已移出待审查
+
+    controller.dispose();
+    sidecar.dispose();
+  });
+
+  it('review.acceptAll → 全部保留并清空待审查列表', async () => {
+    const t = new FakeTransport();
+    const ckp = new CkpService();
+    ckp.attach(t as never);
+    const sidecar = new SidecarManager(fakeContext());
+    const docs = new VirtualDocProvider();
+    const controller = new ChatController(ckp, sidecar, docs, fakeContext());
+    const posted: { type?: string; changes?: unknown[] }[] = [];
+    const host = {
+      hostId: 'keep-all',
+      kind: 'panel' as const,
+      context: fakeContext(),
+      webview: { postMessage: async () => true } as never,
+      post: (msg: unknown) => posted.push(msg as { type?: string }),
+    };
+    controller.attach(host);
+    await ckp.switchSession('s1');
+    for (const p of ['a.ts', 'b.ts']) {
+      t.push({
+        type: 'file.changed',
+        sessionId: 's1',
+        change: { path: p, patch: '', additions: 1, deletions: 0, status: 'pending' },
+      });
+    }
+    await new Promise((r) => setTimeout(r, 20));
+    posted.length = 0;
+    await controller.handleMessage({ type: 'review.acceptAll' }, host);
+    const after = posted.find((m) => m.type === 'review.list');
+    expect((after?.changes as unknown[])?.length).toBe(0);
+
+    controller.dispose();
+    sidecar.dispose();
+  });
+
+  it('已保留的文件再次保留是幂等的（不抛错）', async () => {
+    const t = new FakeTransport();
+    const ckp = new CkpService();
+    ckp.attach(t as never);
+    const sidecar = new SidecarManager(fakeContext());
+    const docs = new VirtualDocProvider();
+    const controller = new ChatController(ckp, sidecar, docs, fakeContext());
+    const host = {
+      hostId: 'idem',
+      kind: 'panel' as const,
+      context: fakeContext(),
+      webview: { postMessage: async () => true } as never,
+      post: () => undefined,
+    };
+    controller.attach(host);
+    await expect(
+      controller.handleMessage({ type: 'review.accept', path: 'nope.ts' }, host),
+    ).resolves.toBeUndefined();
+    controller.dispose();
+    sidecar.dispose();
+  });
+});

@@ -18,6 +18,8 @@ export interface MessageListProps {
   onDiff?: (path: string) => void;
   onRevert?: (path: string) => void;
   onOpen?: (path: string) => void;
+  /** 保留（Keep）某个文件的改动。 */
+  onKeep?: (path: string) => void;
   /** 消息级操作。 */
   onRetry?: (text: string) => void;
   onEdit?: (text: string) => void;
@@ -56,6 +58,7 @@ export function MessageList({
   onDiff,
   onRevert,
   onOpen,
+  onKeep,
   onRetry,
   onEdit,
   checkpointByGroup,
@@ -115,6 +118,7 @@ export function MessageList({
                 onDiff={onDiff}
                 onRevert={onRevert}
                 onOpen={onOpen}
+                onKeep={onKeep}
                 onRetry={onRetry}
                 onEdit={onEdit}
                 onRestore={onRestore}

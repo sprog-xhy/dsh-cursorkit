@@ -765,3 +765,20 @@ body {
 .panel-row.editing { padding: 2px 4px; }
 .mention-path { display: block; }
 .msg-user .user-actions { justify-content: flex-end; }
+
+/* ── Keep/Undo：卡片已处理状态 + 主按钮 ─────────────── */
+.change-settled {
+  font-size: 10.5px;
+  padding: 0 6px;
+  border-radius: var(--ds-radius-sm);
+  white-space: nowrap;
+}
+.change-settled.accepted { color: var(--ds-tl-add); background: color-mix(in srgb, var(--ds-tl-add) 14%, transparent); }
+.change-settled.reverted { color: var(--ds-muted); background: var(--ds-surface-2); }
+.panel-btn.primary {
+  color: var(--ds-tl-add);
+  border-color: color-mix(in srgb, var(--ds-tl-add) 45%, transparent);
+}
+.panel-btn.primary:hover {
+  background: color-mix(in srgb, var(--ds-tl-add) 14%, transparent);
+}

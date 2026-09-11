@@ -232,8 +232,38 @@ export class ChatController {
         return;
       case 'review.diff':
         return this.onReviewDiff(String(msg.path ?? ''));
+      case 'review.accept':
+        return this.onReviewAccept(String(msg.path ?? ''));
       case 'review.reject':
         return this.onReviewReject(String(msg.path ?? ''));
+      case 'review.acceptAll': {
+        const kept = this.tracker.acceptAll();
+        activityLog(`review-accept-all | ${kept.length} 个文件`);
+        for (const p of kept) this.broadcast({ type: 'review.accepted', path: p });
+        this.broadcast({ type: 'review.list', changes: this.tracker.list() });
+        if (kept.length) this.broadcast({ type: 'info', message: `已保留 ${kept.length} 个文件的改动` });
+        return;
+      }
+      case 'review.rejectAll': {
+        const paths = this.tracker.list().map((c) => c.path);
+        let reverted = 0;
+        for (const p of paths) {
+          try {
+            const outcome = await rejectChange(p, currentWorkspace(), this.docs);
+            if (outcome === 'reverted') {
+              this.tracker.remove(p);
+              reverted++;
+              this.broadcast({ type: 'review.reverted', path: p });
+            }
+          } catch {
+            /* 单个失败不阻塞其余 */
+          }
+        }
+        activityLog(`review-reject-all | ${reverted}/${paths.length}`);
+        this.broadcast({ type: 'review.list', changes: this.tracker.list() });
+        this.broadcast({ type: 'info', message: `已撤销 ${reverted} 个文件的改动` });
+        return;
+      }
       case 'review.open': {
         const p = String(msg.path ?? '');
         if (!p) return;
@@ -399,6 +429,15 @@ export class ChatController {
     } catch (err) {
       this.broadcast({ type: 'error', message: `打开差异失败: ${(err as Error).message}` });
     }
+  }
+
+  /** 保留（Keep）：接受改动，仅移出待审查列表。 */
+  private async onReviewAccept(path: string): Promise<void> {
+    if (!path) return;
+    const ok = this.tracker.accept(path);
+    activityLog(`review-accept | ${path} (${ok ? 'ok' : 'not-tracked'})`);
+    if (ok) this.broadcast({ type: 'review.accepted', path });
+    this.broadcast({ type: 'review.list', changes: this.tracker.list() });
   }
 
   private async onReviewReject(path: string): Promise<void> {

@@ -195,15 +195,32 @@ export interface ReviewPanelProps {
   onReject: (path: string) => void;
   onOpen: (path: string) => void;
   onClose: () => void;
+  /** 保留（Keep）单个文件。 */
+  onKeep?: (path: string) => void;
+  /** 全部保留 / 全部撤销（Cursor 的 Keep all / Undo all）。 */
+  onKeepAll?: () => void;
+  onRejectAll?: () => void;
 }
 
 export function ReviewPanel(props: ReviewPanelProps): JSX.Element {
-  const { changes, onDiff, onReject, onOpen, onClose } = props;
+  const { changes, onDiff, onReject, onOpen, onClose, onKeep, onKeepAll, onRejectAll } = props;
   return (
     <Panel
       title={`agent 改动${changes.length ? ` · ${changes.length}` : ''}`}
       onClose={onClose}
-      emptyText="暂无改动（agent 写文件后会出现在这里）"
+      emptyText="暂无待审查改动（agent 写文件后会出现在这里）"
+      extra={
+        changes.length > 1 ? (
+          <>
+            <button className="panel-btn primary" onClick={onKeepAll} title="保留全部改动（Keep all）">
+              全部保留
+            </button>
+            <button className="panel-btn danger" onClick={onRejectAll} title="撤销全部改动（Undo all）">
+              全部撤销
+            </button>
+          </>
+        ) : undefined
+      }
     >
       {changes.map((c) => (
         <div key={c.path} className="panel-row" title={c.path}>
@@ -221,11 +238,14 @@ export function ReviewPanel(props: ReviewPanelProps): JSX.Element {
             <span className="panel-row-sub" title="改动行数未知，请用 diff 查看">—</span>
           )}
           <span className="panel-row-actions">
+            <button className="panel-btn primary" onClick={() => onKeep?.(c.path)} title="保留（Keep）">
+              保留
+            </button>
+            <button className="panel-btn danger" onClick={() => onReject(c.path)} title="还原该文件（Undo）">
+              撤销
+            </button>
             <button className="panel-btn" onClick={() => onDiff(c.path)} title="与 git HEAD 对比">
               diff
-            </button>
-            <button className="panel-btn danger" onClick={() => onReject(c.path)} title="还原该文件">
-              还原
             </button>
           </span>
         </div>

@@ -28,6 +28,8 @@ export interface MessageItemProps {
   onDiff?: (path: string) => void;
   onRevert?: (path: string) => void;
   onOpen?: (path: string) => void;
+  /** 保留（Keep）某个文件的改动。 */
+  onKeep?: (path: string) => void;
   /** 重新生成这条回复（重发对应的用户消息）。 */
   onRetry?: (text: string) => void;
   /** 把这条用户消息载入输入框编辑后重发。 */
@@ -42,6 +44,7 @@ export function MessageItem({
   onDiff,
   onRevert,
   onOpen,
+  onKeep,
   onRetry,
   onEdit,
   checkpointId,
@@ -66,9 +69,11 @@ export function MessageItem({
           additions={item.additions ?? 0}
           deletions={item.deletions ?? 0}
           status={item.status}
+          changeState={item.changeState}
           onDiff={() => onDiff?.(item.path ?? item.text)}
           onRevert={() => onRevert?.(item.path ?? item.text)}
           onOpen={() => onOpen?.(item.path ?? item.text)}
+          onKeep={() => onKeep?.(item.path ?? item.text)}
         />
       </div>
     );
