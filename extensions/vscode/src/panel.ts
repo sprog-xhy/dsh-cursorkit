@@ -21,12 +21,18 @@ export class ChatPanel implements ChatHost {
     public readonly context: vscode.ExtensionContext,
     private readonly controller: ChatController,
   ) {
-    this.panel = vscode.window.createWebviewPanel('dshCursorkit.chat', 'DSH CursorKit', vscode.ViewColumn.Beside, {
+    this.panel = vscode.window.createWebviewPanel(
+      'dshCursorkit.chat',
+      'DSH CursorKit',
+      pickChatColumn(context),
+      {
       enableScripts: true,
       retainContextWhenHidden: true,
-      localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'dist', 'webview')],
-    });
+        localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'dist', 'webview')],
+      },
+    );
     this.panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'assets', 'icon.png');
+    rememberChatColumn(context, this.panel.viewColumn ?? vscode.ViewColumn.Active);
     this.panel.webview.html = renderWebviewHtml(context, this.panel.webview);
     this.panel.webview.onDidReceiveMessage(
       (msg) => void this.controller.handleMessage(msg, this),
@@ -105,4 +111,32 @@ class SidebarHost implements ChatHost {
     this.controller.detach(this);
     this.disposables.forEach((d) => d.dispose());
   }
+}
+
+/**
+ * 选择 Chat 面板应落在哪一列 —— 避免"每开一次就多切一列"。
+ *
+ * 事故：原先固定用 `ViewColumn.Beside`，每次打开（含 URI/命令/重启后重开）
+ * 都会把编辑器区再切一列 → 单窗口里出现 4-5 个并列空列，看起来像"多个空白窗口"。
+ *
+ * 策略：
+ * 1) 上次用过且仍存在的列 → 复用（记在 workspaceState）
+ * 2) 当前只有 1 个编辑器组 → 允许 Beside（正常的"在右侧打开"体验）
+ * 3) 已经有多个组 → 不再切分，直接用 Active 组
+ */
+export function pickChatColumn(context: vscode.ExtensionContext): vscode.ViewColumn {
+  const KEY = 'dshCursorkit.chatColumn';
+  const groups = vscode.window.tabGroups?.all ?? [];
+  const saved = context.workspaceState.get<number>(KEY);
+  if (saved && saved > 0 && saved <= groups.length) {
+    const stillExists = groups.some((g) => g.viewColumn === saved && g.viewColumn !== undefined);
+    if (stillExists) return saved as vscode.ViewColumn;
+  }
+  const column = groups.length <= 1 ? vscode.ViewColumn.Beside : vscode.ViewColumn.Active;
+  return column;
+}
+
+/** 记录实际使用的列，供下次复用。 */
+export function rememberChatColumn(context: vscode.ExtensionContext, column: number): void {
+  void context.workspaceState.update('dshCursorkit.chatColumn', column);
 }

@@ -53,6 +53,7 @@ class Emitter<T> {
   }
 }
 
+export const tabGroups = { all: [] as { viewColumn?: number }[] };
 export const window = {
   createOutputChannel: (name: string) => ({
     name,
@@ -82,6 +83,7 @@ export const window = {
     registeredProviders.push({ kind: 'webviewView', id });
     return { dispose: (): void => undefined };
   },
+  tabGroups,
   registerUriHandler: (handler: { handleUri(uri: Uri): unknown }) => {
     registeredUriHandlers.push(handler);
     return { dispose: (): void => undefined };

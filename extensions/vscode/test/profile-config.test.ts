@@ -3,7 +3,9 @@
  * 覆盖历史缺陷：生成的 patch 曾 insert agent-loop（与 dsh-base 冲突导致启动失败）
  * 且缺少必需的 cursorkit-host。
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { tabGroups } from './stubs/vscode.ts';
+import { pickChatColumn, rememberChatColumn } from '../src/panel.ts';
 import {
   buildProfilePatch,
   buildProfilePackage,
@@ -162,5 +164,40 @@ describe('profilePackageNeedsRepair（依赖路径变化）', () => {
 
   it('JSON 损坏 → 需重写', () => {
     expect(profilePackageNeedsRepair('{bad', HOST, PROTO)).toBe(true);
+  });
+});
+
+describe('Chat 面板列选择（修复"每次打开都多切一列"）', () => {
+  const ctxWith = (saved?: number) =>
+    ({
+      workspaceState: {
+        get: (_k: string, d?: unknown) => (saved === undefined ? d : saved),
+        update: async () => undefined,
+      },
+    }) as never;
+
+  beforeEach(() => {
+    tabGroups.all = [];
+  });
+
+  it('只有 1 个编辑器组 → 用 Beside（在右侧打开 Chat）', () => {
+    tabGroups.all = [{ viewColumn: 1 }];
+    expect(pickChatColumn(ctxWith())).toBe(-2);
+  });
+
+  it('已有多个编辑器组 → 不再切分，用 Active（关键修复）', () => {
+    tabGroups.all = [{ viewColumn: 1 }, { viewColumn: 2 }, { viewColumn: 3 }];
+    expect(pickChatColumn(ctxWith())).toBe(-1);
+  });
+
+  it('上次用过的列仍存在 → 复用它（不新增列）', () => {
+    tabGroups.all = [{ viewColumn: 1 }, { viewColumn: 2 }];
+    expect(pickChatColumn(ctxWith(2))).toBe(2);
+    expect(rememberChatColumn).toBeTypeOf('function');
+  });
+
+  it('上次的列已不存在 → 回退到 Active', () => {
+    tabGroups.all = [{ viewColumn: 1 }, { viewColumn: 2 }];
+    expect(pickChatColumn(ctxWith(9))).toBe(-1);
   });
 });

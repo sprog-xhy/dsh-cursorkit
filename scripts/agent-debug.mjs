@@ -23,6 +23,7 @@
  *   node scripts/agent-debug.mjs click "<selector>"       # 点击（等价于真人点击）
  *   node scripts/agent-debug.mjs type "<text>"            # 往输入框输入并可选回车
  *   node scripts/agent-debug.mjs errors [--seconds=8]     # 采集前端报错
+ *   node scripts/agent-debug.mjs keys "ctrl+w"            # 派发快捷键（驱动 VSCode 命令）
  *   node scripts/agent-debug.mjs log [--n=40]             # 扩展活动日志尾部
  */
 import { writeFileSync, readFileSync, existsSync } from 'node:fs';
@@ -459,6 +460,70 @@ async function cmdErrors() {
   }
 }
 
+/** 组合键 → CDP 键码。 */
+const KEYS = {
+  w: { code: 'KeyW', vk: 87 },
+  p: { code: 'KeyP', vk: 80 },
+  k: { code: 'KeyK', vk: 75 },
+  c: { code: 'KeyC', vk: 67 },
+  enter: { code: 'Enter', vk: 13, key: 'Enter' },
+  escape: { code: 'Escape', vk: 27, key: 'Escape' },
+  tab: { code: 'Tab', vk: 9, key: 'Tab' },
+};
+
+/** 派发一个组合键（内部使用）。 */
+async function pressCombo(cdp, combo) {
+  for (const one of combo.split(/\s+/).filter(Boolean)) {
+    const parts = one.toLowerCase().split('+');
+    const keyName = parts.pop() ?? '';
+    const mods = parts;
+    const spec = KEYS[keyName] ?? { code: `Key${keyName.toUpperCase()}`, vk: keyName.toUpperCase().charCodeAt(0) };
+    let modifiers = 0;
+    if (mods.includes('alt')) modifiers |= 1;
+    if (mods.includes('ctrl')) modifiers |= 2;
+    if (mods.includes('meta')) modifiers |= 4;
+    if (mods.includes('shift')) modifiers |= 8;
+    const base = {
+      modifiers,
+      key: spec.key ?? keyName,
+      code: spec.code,
+      windowsVirtualKeyCode: spec.vk,
+      nativeVirtualKeyCode: spec.vk,
+    };
+    await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...base });
+    await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...base });
+    await new Promise((r) => setTimeout(r, 250));
+  }
+}
+
+/** 在工作台窗口派发真实键盘事件（用于驱动快捷键）。 */
+async function cmdKeys() {
+  const combo = positional[0];
+  if (!combo) throw new Error('用法：keys "ctrl+w"（可空格分隔多个，如 "ctrl+w ctrl+w"）');
+  await withWorkbench(async (cdp) => {
+    await pressCombo(cdp, combo);
+    console.log(`已派发：${combo}`);
+  });
+}
+
+/**
+ * 执行任意 VSCode 命令（走命令面板：Ctrl+Shift+P → 输入标题 → Enter）。
+ * 例：node scripts/agent-debug.mjs command "View: Single Column Editor Layout"
+ */
+async function cmdCommand() {
+  const title = positional[0];
+  if (!title) throw new Error('用法：command "<命令面板里的标题>"');
+  await withWorkbench(async (cdp) => {
+    await pressCombo(cdp, 'ctrl+shift+p');
+    await new Promise((r) => setTimeout(r, 500));
+    await cdp.send('Input.insertText', { text: title });
+    await new Promise((r) => setTimeout(r, 900));
+    await pressCombo(cdp, 'enter');
+    await new Promise((r) => setTimeout(r, 700));
+    console.log(`已执行命令：${title}`);
+  });
+}
+
 async function cmdLog() {
   const n = Number(flag('n', 40));
   const home = process.env.CK_DSH_HOME ?? join(homedir(), '.dsh-cursorkit');
@@ -480,6 +545,8 @@ const COMMANDS = {
   click: cmdClick,
   type: cmdType,
   errors: cmdErrors,
+  keys: cmdKeys,
+  command: cmdCommand,
   log: cmdLog,
 };
 
